@@ -872,7 +872,11 @@ export const usePressStore = create<PressStore>((set, get) => ({
       isBest: r.id === id ? !r.isBest : r.isBest,
     }));
     saveReportsToStorage(reports);
-    set({ reports });
+    const updated = reports.find((r) => r.id === id);
+    const currentReport = get().currentReport?.id === id && updated
+      ? updated
+      : get().currentReport;
+    set({ reports, currentReport });
   },
 
   setReportFilter: (filter) => {
@@ -963,7 +967,11 @@ export const usePressStore = create<PressStore>((set, get) => ({
       return { ...r, tags: [...r.tags, tag] };
     });
     saveReportsToStorage(reports);
-    set({ reports });
+    const updated = reports.find((r) => r.id === reportId);
+    const currentReport = get().currentReport?.id === reportId && updated
+      ? updated
+      : get().currentReport;
+    set({ reports, currentReport });
   },
 
   removeReportTag: (reportId, tag) => {
@@ -972,7 +980,11 @@ export const usePressStore = create<PressStore>((set, get) => ({
       return { ...r, tags: r.tags.filter((t) => t !== tag) };
     });
     saveReportsToStorage(reports);
-    set({ reports });
+    const updated = reports.find((r) => r.id === reportId);
+    const currentReport = get().currentReport?.id === reportId && updated
+      ? updated
+      : get().currentReport;
+    set({ reports, currentReport });
   },
 
   updateReportNotes: (reportId, notes) => {
@@ -981,7 +993,11 @@ export const usePressStore = create<PressStore>((set, get) => ({
       return { ...r, notes };
     });
     saveReportsToStorage(reports);
-    set({ reports });
+    const updated = reports.find((r) => r.id === reportId);
+    const currentReport = get().currentReport?.id === reportId && updated
+      ? updated
+      : get().currentReport;
+    set({ reports, currentReport });
   },
 
   renameReport: (reportId, name) => {
@@ -990,7 +1006,11 @@ export const usePressStore = create<PressStore>((set, get) => ({
       return { ...r, name: name.trim() || r.name };
     });
     saveReportsToStorage(reports);
-    set({ reports });
+    const updated = reports.find((r) => r.id === reportId);
+    const currentReport = get().currentReport?.id === reportId && updated
+      ? updated
+      : get().currentReport;
+    set({ reports, currentReport });
   },
 
   exportReportHTML: (id) => {

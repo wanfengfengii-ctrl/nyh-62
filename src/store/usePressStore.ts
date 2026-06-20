@@ -9,6 +9,17 @@ import {
   ExperimentReport,
   ReportFilter,
   StructureAdjustmentRecord,
+  ReportComparisonData,
+  RecommendationAnalysis,
+  RecommendationResult,
+  RecommendationCategory,
+  BatchExportOptions,
+  ExportFormat,
+  TrajectoryAnalysis,
+  PlaybackState,
+  ShareLinkData,
+  ParameterComparison,
+  ResultComparison,
 } from "../types";
 import { validateParams } from "../utils/validateParams";
 import { runFullSimulation, computePressure, computeInitialStatePoint } from "../utils/simulationEngine";
@@ -59,11 +70,36 @@ interface PressStore {
   updateReportNotes: (reportId: string, notes: string) => void;
   renameReport: (reportId: string, name: string) => void;
   exportReportHTML: (id: string) => string;
+
+  selectedReportIds: string[];
+  toggleReportSelection: (id: string) => void;
+  clearReportSelection: () => void;
+  selectAllReports: (ids?: string[]) => void;
+
+  compareReports: (reportIds: string[]) => ReportComparisonData | null;
+  getRecommendationAnalysis: () => RecommendationAnalysis | null;
+  getTrajectoryAnalysis: () => TrajectoryAnalysis | null;
+
+  playbackState: PlaybackState;
+  startPlayback: () => void;
+  pausePlayback: () => void;
+  stepPlayback: (direction: "forward" | "backward") => void;
+  setPlaybackSpeed: (speed: number) => void;
+  resetPlayback: () => void;
+  applyPlaybackState: (index: number) => void;
+
+  loadReportParams: (reportId: string) => void;
+  replayExperiment: (reportId: string) => void;
+
+  exportReportsBatch: (reportIds: string[], options: BatchExportOptions) => string;
+  generateShareLink: (reportIds: string[], expiresInHours?: number) => ShareLinkData;
+  getShareLink: (id: string) => ShareLinkData | null;
 }
 
 const STORAGE_KEY = "press_experiment_plans";
 const REPORTS_STORAGE_KEY = "press_experiment_reports";
 const ADJUSTMENTS_STORAGE_KEY = "press_adjustment_records";
+const SHARE_LINKS_STORAGE_KEY = "press_share_links";
 
 const defaultParams: PressParams = {
   leverLength: 4.5,
@@ -236,6 +272,169 @@ function saveAdjustmentsToStorage(records: StructureAdjustmentRecord[]) {
   } catch (e) {
     console.error("Failed to save adjustments", e);
   }
+}
+
+function loadShareLinksFromStorage(): ShareLinkData[] {
+  try {
+    const raw = localStorage.getItem(SHARE_LINKS_STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw) as ShareLinkData[];
+    }
+  } catch (e) {
+    console.error("Failed to load share links", e);
+  }
+  return [];
+}
+
+function saveShareLinksToStorage(links: ShareLinkData[]) {
+  try {
+    localStorage.setItem(SHARE_LINKS_STORAGE_KEY, JSON.stringify(links));
+  } catch (e) {
+    console.error("Failed to save share links", e);
+  }
+}
+
+const COMPARISON_COLORS = [
+  "#556B2F",
+  "#8B4513",
+  "#DAA520",
+  "#4682B4",
+  "#CD5C5C",
+  "#6B8E23",
+  "#D2691E",
+  "#708090",
+];
+
+const PARAM_LABELS: Record<keyof PressParams, { label: string; unit: string }> = {
+  leverLength: { label: "杠杆长度", unit: "m" },
+  fulcrumPosition: { label: "压石挂点位置", unit: "%" },
+  plateDiameter: { label: "压盘直径", unit: "m" },
+  stoneWeight: { label: "压石重量", unit: "kg" },
+  fruitWeight: { label: "果料重量", unit: "kg" },
+  moistureContent: { label: "果料含水率", unit: "%" },
+};
+
+const METRIC_LABELS: Record<string, { label: string; unit: string; lowerBetter?: boolean }> = {
+  peakPressure: { label: "峰值压力", unit: "kPa" },
+  totalJuice: { label: "总出汁量", unit: "mL" },
+  juiceYield: { label: "出汁率", unit: "%" },
+  residueMoisture: { label: "残渣含水率", unit: "%", lowerBetter: true },
+  stableJuiceTime: { label: "稳定出汁时间", unit: "s", lowerBetter: true },
+  overallScore: { label: "综合评分", unit: "分" },
+};
+
+const RADAR_METRICS = [
+  { key: "juiceYield", label: "出汁率", max: 100 },
+  { key: "efficiencyScore", label: "效率", max: 100 },
+  { key: "safetyScore", label: "安全性", max: 100 },
+  { key: "stabilityScore", label: "稳定性", max: 100 },
+  { key: "overallScore", label: "综合评分", max: 100 },
+];
+
+function calculateRadarScores(report: ExperimentReport): number[] {
+  const { result, summary } = report;
+  const juiceYieldScore = Math.min(100, result.juiceYield * 1.2);
+  const efficiencyScore = result.stableJuiceTime > 0
+    ? Math.max(0, 100 - result.stableJuiceTime * 1.5)
+    : 30;
+  const safetyScore = result.peakPressure > 800
+    ? 0
+    : Math.min(100, 100 - (result.peakPressure / 800) * 50);
+  const stabilityScore = result.stableJuiceTime > 0
+    ? Math.min(100, Math.max(0, 100 - Math.abs(result.stableJuiceTime - 30)))
+    : 20;
+  return [
+    juiceYieldScore,
+    efficiencyScore,
+    safetyScore,
+    stabilityScore,
+    summary.overallScore,
+  ];
+}
+
+function buildBatchExportJSON(reports: ExperimentReport[], options: BatchExportOptions): string {
+  const data = reports.map((r) => ({
+    id: r.id,
+    name: r.name,
+    createdAt: r.createdAt,
+    params: r.params,
+    result: options.includeRawData ? r.result : {
+      peakPressure: r.result.peakPressure,
+      totalJuice: r.result.totalJuice,
+      juiceYield: r.result.juiceYield,
+      residueMoisture: r.result.residueMoisture,
+      stableJuiceTime: r.result.stableJuiceTime,
+      feasible: r.result.feasible,
+    },
+    summary: r.summary,
+    diagnosis: options.includeDiagnosis ? r.diagnosis : undefined,
+    tags: r.tags,
+    notes: r.notes,
+    isBest: r.isBest,
+  }));
+  return JSON.stringify({
+    exportDate: Date.now(),
+    reportCount: reports.length,
+    reports: data,
+  }, null, 2);
+}
+
+function buildBatchExportCSV(reports: ExperimentReport[]): string {
+  const headers = [
+    "报告名称",
+    "创建时间",
+    "杠杆长度(m)",
+    "挂点位置(%)",
+    "压盘直径(m)",
+    "压石重量(kg)",
+    "果料重量(kg)",
+    "含水率(%)",
+    "可行",
+    "峰值压力(kPa)",
+    "总出汁量(mL)",
+    "出汁率(%)",
+    "残渣含水率(%)",
+    "稳定时间(s)",
+    "综合评分",
+    "效率评级",
+    "标签",
+    "备注",
+  ];
+  const rows = reports.map((r) => [
+    r.name,
+    new Date(r.createdAt).toLocaleString("zh-CN"),
+    r.params.leverLength,
+    (r.params.fulcrumPosition * 100).toFixed(0),
+    r.params.plateDiameter,
+    r.params.stoneWeight,
+    r.params.fruitWeight,
+    r.params.moistureContent,
+    r.result.feasible ? "是" : "否",
+    r.result.peakPressure.toFixed(1),
+    r.result.totalJuice.toFixed(0),
+    r.result.juiceYield.toFixed(1),
+    r.result.residueMoisture.toFixed(1),
+    r.result.stableJuiceTime > 0 ? r.result.stableJuiceTime.toFixed(0) : "未达成",
+    r.summary.overallScore,
+    r.diagnosis.efficiencyRating,
+    r.tags.join(";"),
+    r.notes || "",
+  ]);
+  const escape = (v: any) => {
+    const s = String(v ?? "");
+    if (s.includes(",") || s.includes("\"") || s.includes("\n")) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  };
+  return [headers, ...rows].map((r) => r.map(escape).join(",")).join("\n");
+}
+
+function normalizeValue(val: number, isPercent: boolean = false): string {
+  if (isPercent) {
+    return `${(val * 100).toFixed(0)}%`;
+  }
+  return val.toFixed(2);
 }
 
 function buildReportExportHTML(report: ExperimentReport): string {
@@ -585,6 +784,13 @@ export const usePressStore = create<PressStore>((set, get) => ({
   },
   adjustmentRecords: loadAdjustmentsFromStorage(),
   lastParamsBeforeChange: null,
+  selectedReportIds: [],
+  playbackState: {
+    isPlaying: false,
+    currentIndex: 0,
+    speed: 1,
+    history: [],
+  },
 
   setParam: (key, value) => {
     const currentParams = get().params;
@@ -1017,5 +1223,447 @@ export const usePressStore = create<PressStore>((set, get) => ({
     const report = get().reports.find((r) => r.id === id);
     if (!report) return "";
     return buildReportExportHTML(report);
+  },
+
+  toggleReportSelection: (id) => {
+    const { selectedReportIds } = get();
+    const next = selectedReportIds.includes(id)
+      ? selectedReportIds.filter((sid) => sid !== id)
+      : [...selectedReportIds, id];
+    set({ selectedReportIds: next });
+  },
+
+  clearReportSelection: () => set({ selectedReportIds: [] }),
+
+  selectAllReports: (ids) => {
+    if (ids) {
+      set({ selectedReportIds: ids });
+    } else {
+      const { getFilteredReports } = get();
+      const filtered = getFilteredReports();
+      set({ selectedReportIds: filtered.map((r) => r.id) });
+    }
+  },
+
+  compareReports: (reportIds) => {
+    const { reports } = get();
+    const selectedReports = reportIds
+      .map((id) => reports.find((r) => r.id === id))
+      .filter((r): r is ExperimentReport => r !== undefined);
+
+    if (selectedReports.length < 2) return null;
+
+    const paramComparison = Object.entries(PARAM_LABELS).map(([key, { label, unit }]) => {
+      const values = selectedReports.map((r) => {
+        const val = r.params[key as keyof PressParams];
+        return key === "fulcrumPosition" ? (val * 100).toFixed(0) : val.toFixed(2);
+      });
+      return {
+        paramKey: key as keyof PressParams,
+        label,
+        unit,
+        values,
+      };
+    });
+
+    const resultComparison = Object.entries(METRIC_LABELS).map(([key, { label, unit, lowerBetter }]) => {
+      const values = selectedReports.map((r) => {
+        const val = key === "overallScore"
+          ? r.summary.overallScore
+          : (r.result as unknown as Record<string, number>)[key];
+        if (key === "stableJuiceTime" && val < 0) return "未达成";
+        return typeof val === "number" ? val.toFixed(2) : val;
+      });
+      const numValues = values.map((v) => (typeof v === "string" && v !== "未达成" ? parseFloat(v) : -Infinity));
+      let bestIndex: number | undefined;
+      if (numValues.every((v) => !isNaN(v) && v !== -Infinity)) {
+        bestIndex = lowerBetter
+          ? numValues.indexOf(Math.min(...numValues))
+          : numValues.indexOf(Math.max(...numValues));
+      }
+      return {
+        paramKey: key,
+        label,
+        unit,
+        values,
+        bestIndex,
+        isBetterHigher: !lowerBetter,
+      };
+    });
+
+    const radarData = {
+      labels: RADAR_METRICS.map((m) => m.label),
+      datasets: selectedReports.map((r, i) => ({
+        label: r.name,
+        data: calculateRadarScores(r),
+        color: COMPARISON_COLORS[i % COMPARISON_COLORS.length],
+      })),
+    };
+
+    let winnerId: string | undefined;
+    let winnerReason = "";
+    const feasibleReports = selectedReports.filter((r) => r.result.feasible);
+    if (feasibleReports.length > 0) {
+      const winner = feasibleReports.reduce((best, current) =>
+        current.summary.overallScore > best.summary.overallScore ? current : best
+      );
+      winnerId = winner.id;
+      winnerReason = `综合评分最高（${winner.summary.overallScore}分），${winner.result.juiceYield.toFixed(1)}%出汁率，${winner.result.peakPressure.toFixed(0)}kPa峰值压力`;
+    }
+
+    return {
+      reports: selectedReports,
+      paramComparison,
+      resultComparison,
+      radarData,
+      winnerId,
+      winnerReason,
+    };
+  },
+
+  getRecommendationAnalysis: () => {
+    const { reports } = get();
+    const feasibleReports = reports.filter((r) => r.result.feasible);
+    if (feasibleReports.length === 0) return null;
+
+    const calculateCategoryScore = (report: ExperimentReport, category: string): number => {
+      const { result, summary } = report;
+      switch (category) {
+        case "efficiency":
+          return (result.juiceYield * 0.6 + (100 - result.residueMoisture) * 0.4) * 1.2;
+        case "safety":
+          return Math.max(0, 100 - (result.peakPressure / 800) * 100);
+        case "stability":
+          return result.stableJuiceTime > 0
+            ? Math.max(0, 100 - Math.abs(result.stableJuiceTime - 30) * 2)
+            : 20;
+        case "balance":
+          return summary.overallScore;
+        default:
+          return summary.overallScore;
+      }
+    };
+
+    const categoryLabels: Record<string, string> = {
+      efficiency: "效率最优",
+      safety: "安全优先",
+      stability: "稳定可靠",
+      balance: "综合均衡",
+    };
+
+    const recommendations: RecommendationResult[] = [];
+    const categories: string[] = ["efficiency", "safety", "stability", "balance"];
+
+    categories.forEach((category) => {
+      const scored = feasibleReports.map((report) => ({
+        report,
+        score: calculateCategoryScore(report, category),
+      }));
+      scored.sort((a, b) => b.score - a.score);
+
+      scored.slice(0, 3).forEach((item, idx) => {
+        const { report, score } = item;
+        const highlights: string[] = [];
+        const tradeoffs: string[] = [];
+
+        if (report.result.juiceYield >= 50) {
+          highlights.push(`出汁率高达${report.result.juiceYield.toFixed(1)}%`);
+        } else if (report.result.juiceYield < 35) {
+          tradeoffs.push(`出汁率偏低（${report.result.juiceYield.toFixed(1)}%）`);
+        }
+
+        if (report.result.peakPressure < 500) {
+          highlights.push(`压力安全（${report.result.peakPressure.toFixed(0)}kPa）`);
+        } else if (report.result.peakPressure > 700) {
+          tradeoffs.push(`压力较高（${report.result.peakPressure.toFixed(0)}kPa）`);
+        }
+
+        if (report.result.stableJuiceTime > 0 && report.result.stableJuiceTime < 40) {
+          highlights.push(`快速稳定（${report.result.stableJuiceTime.toFixed(0)}s）`);
+        } else if (report.result.stableJuiceTime > 60) {
+          tradeoffs.push(`稳定时间较长（${report.result.stableJuiceTime.toFixed(0)}s）`);
+        }
+
+        recommendations.push({
+          report,
+          category: category as RecommendationCategory,
+          categoryLabel: categoryLabels[category],
+          score: Math.round(score * 10) / 10,
+          rank: idx + 1,
+          highlights,
+          tradeoffs,
+        });
+      });
+    });
+
+    const overallBest = recommendations.find((r) => r.category === "balance" && r.rank === 1)!;
+    const efficiencyBest = recommendations.find((r) => r.category === "efficiency" && r.rank === 1)!;
+    const safetyBest = recommendations.find((r) => r.category === "safety" && r.rank === 1)!;
+    const stabilityBest = recommendations.find((r) => r.category === "stability" && r.rank === 1)!;
+
+    const insights: string[] = [];
+    if (efficiencyBest.report.result.juiceYield >= 55) {
+      insights.push(`当前参数组合可实现${efficiencyBest.report.result.juiceYield.toFixed(1)}%的高出汁率`);
+    }
+    if (safetyBest.report.result.peakPressure < 400) {
+      insights.push(`存在低压安全方案，峰值压力仅${safetyBest.report.result.peakPressure.toFixed(0)}kPa`);
+    }
+    const avgScore = feasibleReports.reduce((sum, r) => sum + r.summary.overallScore, 0) / feasibleReports.length;
+    insights.push(`所有可行方案平均综合评分为${avgScore.toFixed(1)}分`);
+    if (reports.some((r) => !r.result.feasible)) {
+      insights.push(`${reports.filter((r) => !r.result.feasible).length}个方案因参数不合理被判定为不可行`);
+    }
+
+    const comparisonMatrix = {
+      reportIds: feasibleReports.slice(0, 5).map((r) => r.id),
+      matrix: feasibleReports.slice(0, 5).map((r1) =>
+        feasibleReports.slice(0, 5).map((r2) => r1.summary.overallScore - r2.summary.overallScore)
+      ),
+    };
+
+    return {
+      recommendations,
+      overallBest,
+      efficiencyBest,
+      safetyBest,
+      stabilityBest,
+      insights,
+      comparisonMatrix,
+    };
+  },
+
+  getTrajectoryAnalysis: () => {
+    const { adjustmentRecords, reports } = get();
+    if (adjustmentRecords.length === 0) return null;
+
+    const sortedRecords = [...adjustmentRecords].sort((a, b) => a.timestamp - b.timestamp);
+
+    const paramTrends = Object.entries(PARAM_LABELS).map(([key, { label, unit }]) => {
+      const paramKey = key as keyof PressParams;
+      const values = sortedRecords.map((r, idx) => ({
+        timestamp: r.timestamp,
+        value: r.newParams[paramKey],
+        improvement: idx > 0 ? r.improvementScore : 0,
+      }));
+
+      const firstVal = values[0]?.value || 0;
+      const lastVal = values[values.length - 1]?.value || 0;
+      const delta = lastVal - firstVal;
+      let trend: "increasing" | "decreasing" | "stable" = "stable";
+      if (Math.abs(delta) > 0.01) {
+        trend = delta > 0 ? "increasing" : "decreasing";
+      }
+
+      const correlations = values.map((v, i) => {
+        if (i === 0) return 0;
+        const prevVal = values[i - 1].value;
+        const valDelta = v.value - prevVal;
+        return valDelta * v.improvement;
+      });
+      const correlation = correlations.reduce((a, b) => a + b, 0) / (correlations.length || 1);
+
+      return {
+        paramKey,
+        label,
+        unit,
+        values,
+        trend,
+        correlation: Math.round(correlation * 100) / 100,
+      };
+    });
+
+    const resultMetricKeys = ["totalJuice", "juiceYield", "peakPressure", "stableJuiceTime", "overallScore"];
+    const resultTrends = resultMetricKeys.map((key) => {
+      const metricInfo = METRIC_LABELS[key] || { label: key, unit: "" };
+      const values = sortedRecords.map((r, idx) => {
+        const result = r.newResult;
+        let value = 0;
+        if (result) {
+          value = key === "overallScore"
+            ? reports.find((rep) => rep.result === result)?.summary.overallScore || 0
+            : (result as unknown as Record<string, number>)[key] || 0;
+        }
+        const prevResult = idx > 0 ? sortedRecords[idx - 1].newResult : undefined;
+        let prevValue = 0;
+        if (prevResult) {
+          prevValue = key === "overallScore"
+            ? reports.find((rep) => rep.result === prevResult)?.summary.overallScore || 0
+            : (prevResult as unknown as Record<string, number>)[key] || 0;
+        }
+        return {
+          timestamp: r.timestamp,
+          value,
+          delta: idx > 0 ? value - prevValue : 0,
+        };
+      });
+
+      const firstVal = values[0]?.value || 0;
+      const lastVal = values[values.length - 1]?.value || 0;
+      const delta = lastVal - firstVal;
+      let trend: "improving" | "declining" | "stable" = "stable";
+      if (Math.abs(delta) > 0.1) {
+        const lowerBetter = METRIC_LABELS[key]?.lowerBetter;
+        const isBetter = lowerBetter ? delta < 0 : delta > 0;
+        trend = isBetter ? "improving" : "declining";
+      }
+
+      return {
+        metricKey: key,
+        label: metricInfo.label,
+        unit: metricInfo.unit,
+        values,
+        trend,
+      };
+    });
+
+    const totalImprovement = sortedRecords.reduce((sum, r) => sum + r.improvementScore, 0);
+
+    const keyInsights: string[] = [];
+    const improvingParams = paramTrends.filter((p) => p.trend !== "stable" && p.correlation > 0);
+    if (improvingParams.length > 0) {
+      keyInsights.push(`${improvingParams.map((p) => p.label).join("、")}的调整与结果提升呈正相关`);
+    }
+    const improvingMetrics = resultTrends.filter((r) => r.trend === "improving");
+    if (improvingMetrics.length > 0) {
+      keyInsights.push(`${improvingMetrics.map((m) => m.label).join("、")}指标持续优化`);
+    }
+    if (totalImprovement > 0) {
+      keyInsights.push(`参数调整累计带来${totalImprovement.toFixed(1)}分的综合提升`);
+    }
+
+    const optimalPath = sortedRecords
+      .filter((r) => r.improvementScore > 0)
+      .sort((a, b) => b.improvementScore - a.improvementScore)
+      .slice(0, 5);
+
+    return {
+      records: sortedRecords,
+      paramTrends,
+      resultTrends,
+      overallImprovement: Math.round(totalImprovement * 10) / 10,
+      keyInsights,
+      optimalPath,
+    };
+  },
+
+  startPlayback: () => {
+    const { adjustmentRecords } = get();
+    set({
+      playbackState: {
+        isPlaying: true,
+        currentIndex: 0,
+        speed: 1,
+        history: [...adjustmentRecords].sort((a, b) => a.timestamp - b.timestamp),
+      },
+    });
+  },
+
+  pausePlayback: () => {
+    set((state) => ({
+      playbackState: { ...state.playbackState, isPlaying: false },
+    }));
+  },
+
+  stepPlayback: (direction) => {
+    set((state) => {
+      const { history, currentIndex } = state.playbackState;
+      let nextIndex = direction === "forward"
+        ? Math.min(history.length - 1, currentIndex + 1)
+        : Math.max(0, currentIndex - 1);
+      return {
+        playbackState: { ...state.playbackState, currentIndex: nextIndex },
+      };
+    });
+    const { playbackState, applyPlaybackState } = get();
+    applyPlaybackState(playbackState.currentIndex);
+  },
+
+  setPlaybackSpeed: (speed) => {
+    set((state) => ({
+      playbackState: { ...state.playbackState, speed },
+    }));
+  },
+
+  resetPlayback: () => {
+    const { adjustmentRecords } = get();
+    set({
+      playbackState: {
+        isPlaying: false,
+        currentIndex: 0,
+        speed: 1,
+        history: [...adjustmentRecords].sort((a, b) => a.timestamp - b.timestamp),
+      },
+    });
+  },
+
+  applyPlaybackState: (index) => {
+    const { playbackState, setParams } = get();
+    const record = playbackState.history[index];
+    if (record) {
+      setParams({ ...record.newParams });
+    }
+  },
+
+  loadReportParams: (reportId) => {
+    const { reports, setParams } = get();
+    const report = reports.find((r) => r.id === reportId);
+    if (report) {
+      setParams({ ...report.params });
+    }
+  },
+
+  replayExperiment: (reportId) => {
+    const { reports, loadReportParams, startSimulation } = get();
+    const report = reports.find((r) => r.id === reportId);
+    if (report) {
+      loadReportParams(reportId);
+      setTimeout(() => startSimulation(), 100);
+    }
+  },
+
+  exportReportsBatch: (reportIds, options) => {
+    const { reports } = get();
+    const selectedReports = reportIds
+      .map((id) => reports.find((r) => r.id === id))
+      .filter((r): r is ExperimentReport => r !== undefined);
+
+    if (selectedReports.length === 0) return "";
+
+    const { format } = options;
+    switch (format) {
+      case "json":
+        return buildBatchExportJSON(selectedReports, options);
+      case "csv":
+        return buildBatchExportCSV(selectedReports);
+      case "html":
+        return selectedReports.map((r) => buildReportExportHTML(r)).join("\n\n<hr style=\"page-break-after: always;\" />\n\n");
+      default:
+        return buildBatchExportJSON(selectedReports, options);
+    }
+  },
+
+  generateShareLink: (reportIds, expiresInHours) => {
+    const now = Date.now();
+    const link: ShareLinkData = {
+      id: `share_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      reportIds,
+      createdAt: now,
+      expiresAt: expiresInHours ? now + expiresInHours * 60 * 60 * 1000 : undefined,
+      viewCount: 0,
+    };
+    const links = loadShareLinksFromStorage();
+    const next = [link, ...links].slice(0, 100);
+    saveShareLinksToStorage(next);
+    return link;
+  },
+
+  getShareLink: (id) => {
+    const links = loadShareLinksFromStorage();
+    const link = links.find((l) => l.id === id);
+    if (!link) return null;
+    if (link.expiresAt && Date.now() > link.expiresAt) {
+      return null;
+    }
+    return link;
   },
 }));

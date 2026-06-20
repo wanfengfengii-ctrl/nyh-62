@@ -192,3 +192,102 @@ export type ReportFilter = {
   sortBy: ReportSortField;
   sortOrder: "asc" | "desc";
 };
+
+export interface ReportComparisonRow {
+  paramKey: keyof PressParams | string;
+  label: string;
+  unit: string;
+  values: (number | string)[];
+  bestIndex?: number;
+  isBetterHigher?: boolean;
+}
+
+export interface ReportComparisonData {
+  reports: ExperimentReport[];
+  paramComparison: ReportComparisonRow[];
+  resultComparison: ReportComparisonRow[];
+  radarData: {
+    labels: string[];
+    datasets: {
+      label: string;
+      data: number[];
+      color: string;
+    }[];
+  };
+  winnerId?: string;
+  winnerReason: string;
+}
+
+export type RecommendationCategory = "efficiency" | "safety" | "stability" | "balance";
+
+export interface RecommendationResult {
+  report: ExperimentReport;
+  category: RecommendationCategory;
+  categoryLabel: string;
+  score: number;
+  rank: number;
+  highlights: string[];
+  tradeoffs: string[];
+}
+
+export interface RecommendationAnalysis {
+  recommendations: RecommendationResult[];
+  overallBest: RecommendationResult;
+  efficiencyBest: RecommendationResult;
+  safetyBest: RecommendationResult;
+  stabilityBest: RecommendationResult;
+  insights: string[];
+  comparisonMatrix: {
+    reportIds: string[];
+    matrix: number[][];
+  };
+}
+
+export type ExportFormat = "html" | "json" | "csv" | "pdf";
+
+export interface BatchExportOptions {
+  format: ExportFormat;
+  includeCharts?: boolean;
+  includeRawData?: boolean;
+  includeDiagnosis?: boolean;
+  fileName?: string;
+}
+
+export interface PlaybackState {
+  isPlaying: boolean;
+  currentIndex: number;
+  speed: number;
+  history: StructureAdjustmentRecord[];
+}
+
+export interface TrajectoryAnalysis {
+  records: StructureAdjustmentRecord[];
+  paramTrends: {
+    paramKey: keyof PressParams;
+    label: string;
+    unit: string;
+    values: { timestamp: number; value: number; improvement: number }[];
+    trend: "increasing" | "decreasing" | "stable";
+    correlation: number;
+  }[];
+  resultTrends: {
+    metricKey: string;
+    label: string;
+    unit: string;
+    values: { timestamp: number; value: number; delta: number }[];
+    trend: "improving" | "declining" | "stable";
+  }[];
+  overallImprovement: number;
+  keyInsights: string[];
+  optimalPath: StructureAdjustmentRecord[];
+}
+
+export interface ShareLinkData {
+  id: string;
+  reportIds: string[];
+  createdAt: number;
+  expiresAt?: number;
+  viewCount: number;
+}
+
+export type RightPanelTab = "report" | "history" | "plans" | "comparison" | "trajectory" | "recommendation";

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, ChevronDown, ChevronRight, FileText, History, FolderOpen } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronRight, FileText, History, FolderOpen, GitCompare, TrendingUp, Award } from "lucide-react";
 import PressSideView from "../components/PressSideView";
 import ControlPanel from "../components/ControlPanel";
 import DataChart from "../components/DataChart";
@@ -7,12 +7,15 @@ import ResultMetrics from "../components/ResultMetrics";
 import PlanManager from "../components/PlanManager";
 import ExperimentReportView from "../components/ExperimentReport";
 import ReportHistory from "../components/ReportHistory";
+import ReportComparison from "../components/ReportComparison";
+import AdjustmentTrajectory from "../components/AdjustmentTrajectory";
+import RecommendationPanel from "../components/RecommendationPanel";
 import useSimulationLoop from "../hooks/useSimulationLoop";
+import { RightPanelTab } from "../types";
 
 export default function Home() {
   useSimulationLoop();
-  const [showPlans, setShowPlans] = useState(true);
-  const [rightTab, setRightTab] = useState<"report" | "plans" | "history">("report");
+  const [rightTab, setRightTab] = useState<RightPanelTab>("report");
   const [showRightPanel, setShowRightPanel] = useState(true);
 
   return (
@@ -81,44 +84,80 @@ export default function Home() {
               </button>
               {showRightPanel && (
                 <div className="mt-2 min-h-[480px] animate-fade-in">
-                  <div className="flex border-b border-wood-200 mb-2">
+                  <div className="flex flex-wrap gap-x-1 border-b border-wood-200 mb-2">
                     <button
                       onClick={() => setRightTab("report")}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
                         rightTab === "report"
                           ? "border-olive-500 text-olive-600"
                           : "border-transparent text-slate-500 hover:text-wood-600"
                       }`}
                     >
-                      <FileText size={14} />
+                      <FileText size={13} />
                       当前报告
                     </button>
                     <button
                       onClick={() => setRightTab("history")}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
                         rightTab === "history"
                           ? "border-olive-500 text-olive-600"
                           : "border-transparent text-slate-500 hover:text-wood-600"
                       }`}
                     >
-                      <History size={14} />
+                      <History size={13} />
                       历史记录
                     </button>
                     <button
+                      onClick={() => setRightTab("comparison")}
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                        rightTab === "comparison"
+                          ? "border-amber-500 text-amber-600"
+                          : "border-transparent text-slate-500 hover:text-wood-600"
+                      }`}
+                    >
+                      <GitCompare size={13} />
+                      对比分析
+                    </button>
+                    <button
+                      onClick={() => setRightTab("trajectory")}
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                        rightTab === "trajectory"
+                          ? "border-blue-500 text-blue-600"
+                          : "border-transparent text-slate-500 hover:text-wood-600"
+                      }`}
+                    >
+                      <TrendingUp size={13} />
+                      调整轨迹
+                    </button>
+                    <button
+                      onClick={() => setRightTab("recommendation")}
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                        rightTab === "recommendation"
+                          ? "border-rust-500 text-rust-600"
+                          : "border-transparent text-slate-500 hover:text-wood-600"
+                      }`}
+                    >
+                      <Award size={13} />
+                      方案推荐
+                    </button>
+                    <button
                       onClick={() => setRightTab("plans")}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
+                      className={`flex items-center gap-1.5 px-2.5 py-2 text-xs font-display font-semibold border-b-2 transition-colors ${
                         rightTab === "plans"
                           ? "border-olive-500 text-olive-600"
                           : "border-transparent text-slate-500 hover:text-wood-600"
                       }`}
                     >
-                      <FolderOpen size={14} />
+                      <FolderOpen size={13} />
                       方案管理
                     </button>
                   </div>
                   <div className="min-h-[420px]">
                     {rightTab === "report" && <ExperimentReportView />}
-                    {rightTab === "history" && <ReportHistory />}
+                    {rightTab === "history" && <ReportHistory onSwitchTab={setRightTab} />}
+                    {rightTab === "comparison" && <ReportComparison />}
+                    {rightTab === "trajectory" && <AdjustmentTrajectory />}
+                    {rightTab === "recommendation" && <RecommendationPanel />}
                     {rightTab === "plans" && (
                       <div className="min-h-[360px]">
                         <PlanManager />

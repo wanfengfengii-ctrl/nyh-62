@@ -6,7 +6,6 @@ import {
   Filter,
   ArrowUpDown,
   Trash2,
-  Eye,
   Award,
   ChevronDown,
   Droplets,
@@ -15,11 +14,21 @@ import {
   Clock,
   Download,
   GitCompare,
+  Play,
+  RotateCcw,
+  Share2,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { usePressStore } from "../store/usePressStore";
-import { ReportSortField } from "../types";
+import { ReportSortField, RightPanelTab } from "../types";
+import BatchExportModal from "./BatchExportModal";
 
-export default function ReportHistory() {
+interface ReportHistoryProps {
+  onSwitchTab?: (tab: RightPanelTab) => void;
+}
+
+export default function ReportHistory({ onSwitchTab }: ReportHistoryProps) {
   const {
     reports,
     currentReport,
@@ -31,12 +40,16 @@ export default function ReportHistory() {
     getFilteredReports,
     getBestReport,
     exportReportHTML,
-    loadPlan,
-    plans,
+    selectedReportIds,
+    toggleReportSelection,
+    clearReportSelection,
+    selectAllReports,
+    loadReportParams,
+    replayExperiment,
   } = usePressStore();
 
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedReportIds, setSelectedReportIds] = useState<string[]>([]);
+  const [showExportModal, setShowExportModal] = useState(false);
 
   const filteredReports = useMemo(() => getFilteredReports(), [
     reports,
@@ -63,10 +76,24 @@ export default function ReportHistory() {
     }
   };
 
-  const toggleSelection = (id: string) => {
-    setSelectedReportIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
+  const handleCompare = () => {
+    if (selectedReportIds.length >= 2 && onSwitchTab) {
+      onSwitchTab("comparison");
+    }
+  };
+
+  const handleBatchExport = () => {
+    if (selectedReportIds.length > 0) {
+      setShowExportModal(true);
+    }
+  };
+
+  const handleLoadParams = (id: string) => {
+    loadReportParams(id);
+  };
+
+  const handleReplay = (id: string) => {
+    replayExperiment(id);
   };
 
   const handleExportHTML = (id: string) => {
@@ -86,15 +113,6 @@ export default function ReportHistory() {
 
   const handleViewReport = (id: string) => {
     setCurrentReport(id);
-  };
-
-  const handleLoadParams = (id: string) => {
-    const report = reports.find((r) => r.id === id);
-    if (!report) return;
-    const plan = plans.find((p) => p.id === report.planId);
-    if (plan) {
-      loadPlan(plan.id);
-    }
   };
 
   const ratingColors = {
@@ -128,10 +146,42 @@ export default function ReportHistory() {
           历史实验报告
         </h2>
         <div className="flex items-center gap-1">
+          {filteredReports.length > 0 && (
+            <button
+              onClick={() => {
+                if (selectedReportIds.length === filteredReports.length) {
+                  clearReportSelection();
+                } else {
+                  selectAllReports(filteredReports.map((r) => r.id));
+                }
+              }}
+              className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+              title={selectedReportIds.length === filteredReports.length ? "取消全选" : "全选"}
+            >
+              {selectedReportIds.length === filteredReports.length ? (
+                <CheckSquare size={14} />
+              ) : (
+                <Square size={14} />
+              )}
+              全选
+            </button>
+          )}
           {selectedReportIds.length >= 2 && (
-            <button className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-1">
+            <button
+              onClick={handleCompare}
+              className="vintage-btn-primary text-xs px-2 py-1 flex items-center gap-1"
+            >
               <GitCompare size={14} />
               对比 {selectedReportIds.length}
+            </button>
+          )}
+          {selectedReportIds.length > 0 && (
+            <button
+              onClick={handleBatchExport}
+              className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+            >
+              <Share2 size={14} />
+              批量导出
             </button>
           )}
           <button
@@ -294,7 +344,7 @@ export default function ReportHistory() {
                   checked={isSelected}
                   onChange={(e) => {
                     e.stopPropagation();
-                    toggleSelection(report.id);
+                    toggleReportSelection(report.id);
                   }}
                   onClick={(e) => e.stopPropagation()}
                   className="mt-1 accent-olive-500"
@@ -329,6 +379,26 @@ export default function ReportHistory() {
                   </div>
                 </div>
                 <div className="flex gap-0.5 flex-shrink-0">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleLoadParams(report.id);
+                    }}
+                    className="p-1 text-slate-400 hover:text-olive-500 hover:bg-olive-50 rounded transition-colors"
+                    title="加载参数"
+                  >
+                    <RotateCcw size={13} />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleReplay(report.id);
+                    }}
+                    className="p-1 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                    title="回放实验"
+                  >
+                    <Play size={13} />
+                  </button>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -422,6 +492,12 @@ export default function ReportHistory() {
           );
         })}
       </div>
+
+      <BatchExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        selectedReportIds={selectedReportIds}
+      />
     </div>
   );
 }

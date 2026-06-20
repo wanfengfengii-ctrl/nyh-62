@@ -34,6 +34,29 @@ export function computeMaxCompression(pressure: number): number {
   return Math.min(0.7, pressure / MAX_PRESSURE_FOR_COMPRESSION);
 }
 
+export function detectStableJuiceTime(
+  series: TimeSeriesPoint[],
+  theoreticalWater: number
+): number {
+  if (series.length < 3) return -1;
+  if (theoreticalWater <= 0) return -1;
+
+  const stableThreshold = theoreticalWater * 0.005;
+  const stableWindowSize = Math.max(4, Math.ceil(10 / SIMULATION_DT));
+
+  for (let i = stableWindowSize; i < series.length; i++) {
+    const windowStart = i - stableWindowSize;
+    const startJuice = series[windowStart].juice;
+    const endJuice = series[i].juice;
+    const delta = endJuice - startJuice;
+
+    if (delta <= stableThreshold && endJuice > theoreticalWater * 0.1) {
+      return series[windowStart].time;
+    }
+  }
+  return -1;
+}
+
 export function runFullSimulation(params: PressParams): SimulationResult {
   const pressure = computePressure(params);
   const theoreticalWater = computeTheoreticalWater(params);
@@ -52,8 +75,9 @@ export function runFullSimulation(params: PressParams): SimulationResult {
       theoreticalWater,
       residueMoisture: params.moistureContent,
       juiceYield: 0,
+      stableJuiceTime: -1,
       feasible: false,
-      infeasibleReason: `压力不足（仅 ${pressure.toFixed(1)} kPa），低于临界阈值 ${PRESSURE_THRESHOLD} kPa，无法产生有效出汁。请增加压石重量、加长杠杆、缩小压盘或调整压石挂点位置。`,
+      infeasibleReason: `压力不足（仅 ${pressure.toFixed(1)} kPa），低于临界阈值 ${PRESSURE_THRESHOLD} kPa，无法产生有效出汁。建议：增加压石重量（当前 ${params.stoneWeight}kg）、加长杠杆（当前 ${params.leverLength}m）、缩小压盘（当前 Ø${params.plateDiameter.toFixed(2)}m）或调高压石挂点（当前 ${(params.fulcrumPosition * 100).toFixed(0)}%）。`,
       timeSeries: [initialPoint],
     };
   }
@@ -65,8 +89,37 @@ export function runFullSimulation(params: PressParams): SimulationResult {
       theoreticalWater: 0,
       residueMoisture: 0,
       juiceYield: 0,
+      stableJuiceTime: -1,
       feasible: false,
       infeasibleReason: "果料理论含水量为 0，无汁液可提取。请增加果料重量或提高含水率。",
+      timeSeries: [{ time: 0, pressure, juice: 0, compression: 0 }],
+    };
+  }
+
+  if (params.moistureContent < 20) {
+    return {
+      peakPressure: pressure,
+      totalJuice: 0,
+      theoreticalWater,
+      residueMoisture: params.moistureContent,
+      juiceYield: 0,
+      stableJuiceTime: -1,
+      feasible: false,
+      infeasibleReason: `果料含水率过低（当前 ${params.moistureContent}%），低于 20% 时汁液过于粘稠难以提取。建议将含水率提升至 40% 以上。`,
+      timeSeries: [{ time: 0, pressure, juice: 0, compression: 0 }],
+    };
+  }
+
+  if (pressure > 800) {
+    return {
+      peakPressure: pressure,
+      totalJuice: 0,
+      theoreticalWater,
+      residueMoisture: params.moistureContent,
+      juiceYield: 0,
+      stableJuiceTime: -1,
+      feasible: false,
+      infeasibleReason: `压力过大（当前 ${pressure.toFixed(0)} kPa），超过 800 kPa 可能损坏设备或将果料压成粉末。建议减轻压石重量、缩短杠杆、加大压盘或降低压石挂点比例。`,
       timeSeries: [{ time: 0, pressure, juice: 0, compression: 0 }],
     };
   }
@@ -111,12 +164,29 @@ export function runFullSimulation(params: PressParams): SimulationResult {
   const juiceYield =
     theoreticalWater > 0 ? (currentJuice / theoreticalWater) * 100 : 0;
 
+  const stableJuiceTime = detectStableJuiceTime(timeSeries, theoreticalWater);
+
+  if (juiceYield < 10) {
+    return {
+      peakPressure: Number(peakPressure.toFixed(2)),
+      totalJuice: Number(currentJuice.toFixed(2)),
+      theoreticalWater: Number(theoreticalWater.toFixed(2)),
+      residueMoisture: Number(Math.max(0, residueMoisture).toFixed(2)),
+      juiceYield: Number(juiceYield.toFixed(2)),
+      stableJuiceTime: -1,
+      feasible: false,
+      infeasibleReason: `出汁率过低（仅 ${juiceYield.toFixed(1)}%），低于 10% 不具备实际生产价值。可能原因：压力不足（${pressure.toFixed(0)}kPa）或含水率偏低（${params.moistureContent}%）。建议增加压石重量或提高果料含水率。`,
+      timeSeries,
+    };
+  }
+
   return {
     peakPressure: Number(peakPressure.toFixed(2)),
     totalJuice: Number(currentJuice.toFixed(2)),
     theoreticalWater: Number(theoreticalWater.toFixed(2)),
     residueMoisture: Number(Math.max(0, residueMoisture).toFixed(2)),
     juiceYield: Number(juiceYield.toFixed(2)),
+    stableJuiceTime: Number(stableJuiceTime.toFixed(2)),
     feasible: true,
     timeSeries,
   };

@@ -1,6 +1,7 @@
-import { Play, Pause, RotateCcw, AlertTriangle } from "lucide-react";
+import { Play, Pause, RotateCcw, AlertTriangle, Gauge, Droplets, TrendingUp } from "lucide-react";
 import { usePressStore } from "../store/usePressStore";
 import { validateParams } from "../utils/validateParams";
+import { computePressure, computeTheoreticalWater } from "../utils/simulationEngine";
 
 export default function ControlPanel() {
   const {
@@ -17,6 +18,9 @@ export default function ControlPanel() {
 
   const validation = validateParams(params);
   const { status } = simulationState;
+
+  const livePressure = computePressure(params);
+  const liveTheoreticalWater = computeTheoreticalWater(params);
 
   const paramFields = [
     {
@@ -145,14 +149,49 @@ export default function ControlPanel() {
         <span>120s</span>
       </div>
 
+      <div className="grid grid-cols-3 gap-1.5 px-0.5">
+        <div className="flex flex-col items-center p-2 rounded bg-wood-50 border border-wood-200">
+          <Gauge size={14} className="text-rust-500" />
+          <span className="text-[9px] text-slate-500 mt-0.5">预估压力</span>
+          <span
+            className={`font-display font-bold text-sm ${
+              livePressure < 50
+                ? "text-rust-500"
+                : livePressure > 800
+                ? "text-red-600"
+                : "text-wood-700"
+            }`}
+          >
+            {livePressure.toFixed(0)} kPa
+          </span>
+        </div>
+        <div className="flex flex-col items-center p-2 rounded bg-wood-50 border border-wood-200">
+          <Droplets size={14} className="text-amber-600" />
+          <span className="text-[9px] text-slate-500 mt-0.5">理论含水</span>
+          <span className="font-display font-bold text-sm text-amber-700">
+            {liveTheoreticalWater.toFixed(0)} mL
+          </span>
+        </div>
+        <div className="flex flex-col items-center p-2 rounded bg-wood-50 border border-wood-200">
+          <TrendingUp size={14} className="text-olive-600" />
+          <span className="text-[9px] text-slate-500 mt-0.5">当前出汁</span>
+          <span className="font-display font-bold text-sm text-olive-700">
+            {simulationState.currentJuice.toFixed(0)} mL
+          </span>
+        </div>
+      </div>
+
       {!validation.valid && (
         <div className="flex items-start gap-2 p-3 rounded-md bg-red-50 border border-rust-400 text-rust-600 text-sm">
           <AlertTriangle size={18} className="mt-0.5 flex-shrink-0" />
-          <ul className="space-y-0.5">
-            {validation.errors.map((e, i) => (
-              <li key={i}>· {e.message}</li>
-            ))}
-          </ul>
+          <div>
+            <p className="font-semibold mb-1">参数校验失败</p>
+            <ul className="space-y-0.5">
+              {validation.errors.map((e, i) => (
+                <li key={i}>· {e.message}</li>
+              ))}
+            </ul>
+          </div>
         </div>
       )}
 
@@ -176,7 +215,9 @@ export default function ControlPanel() {
                 {cat}参数
               </div>
               {fields.map((f) => {
-                const hasError = validation.errors.some((e) => e.field === f.key);
+                const hasError = validation.errors.some(
+                  (e) => e.field === f.key
+                );
                 const rawValue = params[f.key];
                 const displayValue = f.displayValue
                   ? f.displayValue(rawValue)
@@ -202,7 +243,9 @@ export default function ControlPanel() {
                           onChange={(e) => {
                             const v = parseFloat(e.target.value);
                             if (!isNaN(v)) {
-                              const actual = f.inputToValue ? f.inputToValue(v) : v;
+                              const actual = f.inputToValue
+                                ? f.inputToValue(v)
+                                : v;
                               setParam(f.key, actual);
                             }
                           }}
@@ -210,7 +253,9 @@ export default function ControlPanel() {
                             hasError ? "error" : ""
                           }`}
                         />
-                        <span className="text-xs text-slate-500 w-6">{f.unit}</span>
+                        <span className="text-xs text-slate-500 w-6">
+                          {f.unit}
+                        </span>
                       </div>
                     </div>
                     <input
@@ -259,14 +304,20 @@ export default function ControlPanel() {
             </span>
           </button>
         ) : status === "running" ? (
-          <button className="vintage-btn-secondary col-span-2" onClick={pauseSimulation}>
+          <button
+            className="vintage-btn-secondary col-span-2"
+            onClick={pauseSimulation}
+          >
             <span className="flex items-center justify-center gap-2">
               <Pause size={16} />
               暂停
             </span>
           </button>
         ) : (
-          <button className="vintage-btn-primary col-span-2" onClick={resumeSimulation}>
+          <button
+            className="vintage-btn-primary col-span-2"
+            onClick={resumeSimulation}
+          >
             <span className="flex items-center justify-center gap-2">
               <Play size={16} />
               继续

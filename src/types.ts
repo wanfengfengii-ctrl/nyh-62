@@ -35,6 +35,7 @@ export interface SimulationResult {
   theoreticalWater: number;
   residueMoisture: number;
   juiceYield: number;
+  stableJuiceTime: number;
   feasible: boolean;
   infeasibleReason?: string;
   timeSeries: TimeSeriesPoint[];

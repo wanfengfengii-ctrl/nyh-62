@@ -2,45 +2,73 @@ import { useMemo, useRef, useState, useEffect } from "react";
 import { usePressStore } from "../store/usePressStore";
 import { PLATE_ARM_M } from "../utils/simulationEngine";
 
-type DragTarget = "stone" | "leverEnd" | null;
+type DragTarget =
+  | "stone-weight"
+  | "stone-position"
+  | "leverEnd"
+  | "plate-left"
+  | "plate-right"
+  | "fruit-height"
+  | null;
+
+interface DragInfo {
+  startX: number;
+  startY: number;
+  startValue: number;
+  startValue2?: number;
+}
 
 export default function PressSideView() {
   const { params, simulationState, setParam } = usePressStore();
   const svgRef = useRef<SVGSVGElement>(null);
   const [dragTarget, setDragTarget] = useState<DragTarget>(null);
-  const [dragInfo, setDragInfo] = useState<{
-    startX: number;
-    startValue: number;
-  } | null>(null);
+  const [dragInfo, setDragInfo] = useState<DragInfo | null>(null);
+  const [showFruitPanel, setShowFruitPanel] = useState(false);
 
-  const { leverLength, stoneWeight, plateDiameter, fulcrumPosition } = params;
+  const {
+    leverLength,
+    stoneWeight,
+    plateDiameter,
+    fulcrumPosition,
+    fruitWeight,
+    moistureContent,
+  } = params;
   const { compressionRatio, currentJuice, currentPressure, status } =
     simulationState;
 
   const viewW = 640;
-  const viewH = 520;
-  const groundY = viewH - 60;
-  const frameX = 100;
-  const frameRightX = viewW - 100;
+  const viewH = 560;
+  const groundY = viewH - 80;
+  const frameX = 80;
+  const frameRightX = viewW - 80;
   const frameWidth = frameRightX - frameX;
 
   const pivotY = 110;
   const pivotX = frameX + 20;
 
-  const maxLeverPx = 440;
+  const maxLeverPx = 460;
   const pxPerMeter = maxLeverPx / 8;
 
   const leverEndX = pivotX + leverLength * pxPerMeter;
   const stonePointX = pivotX + leverLength * fulcrumPosition * pxPerMeter;
   const pressPointX = pivotX + PLATE_ARM_M * pxPerMeter;
 
-  const plungerWidth = Math.max(40, Math.min(frameWidth - 20, plateDiameter * pxPerMeter * 1.4));
+  const plungerWidth = Math.max(
+    40,
+    Math.min(frameWidth - 30, plateDiameter * pxPerMeter * 1.6)
+  );
   const plungerX = pressPointX - plungerWidth / 2;
 
   const maxAngle = status === "idle" ? 0 : 6 + compressionRatio * 12;
   const angleRad = (maxAngle * Math.PI) / 180;
 
-  function rotatePoint(x: number, y: number, cx: number, cy: number, angle: number) {
+  function rotatePoint(
+    x: number,
+    y: number,
+    cx: number,
+    cy: number,
+    angle: number
+  ) {
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
     const dx = x - cx;
@@ -55,7 +83,10 @@ export default function PressSideView() {
   const pressPoint = rotatePoint(pressPointX, pivotY, pivotX, pivotY, angleRad);
   const stonePoint = rotatePoint(stonePointX, pivotY, pivotX, pivotY, angleRad);
 
-  const initialFruitHeight = 140;
+  const initialFruitHeight = Math.min(
+    160,
+    Math.max(50, 60 + fruitWeight * 1.8)
+  );
   const fruitHeight = initialFruitHeight * (1 - compressionRatio);
   const fruitTopY = groundY - fruitHeight - 30;
 
@@ -67,16 +98,18 @@ export default function PressSideView() {
     status === "running" && currentPressure >= 50 && currentJuice > 0;
 
   const juiceLevel = useMemo(() => {
-    const theoretical = params.fruitWeight * 1000 * (params.moistureContent / 100);
+    const theoretical = fruitWeight * 1000 * (moistureContent / 100);
     return theoretical > 0 ? Math.min(1, currentJuice / theoretical) : 0;
-  }, [currentJuice, params.fruitWeight, params.moistureContent]);
+  }, [currentJuice, fruitWeight, moistureContent]);
 
   const pressureColor =
     currentPressure < 50
       ? "#A0522D"
       : currentPressure < 200
       ? "#DAA520"
-      : "#556B2F";
+      : currentPressure < 500
+      ? "#556B2F"
+      : "#8B0000";
 
   function getSvgCoord(clientX: number, clientY: number) {
     if (!svgRef.current) return { x: 0, y: 0 };
@@ -92,31 +125,77 @@ export default function PressSideView() {
   function handleMouseDown(target: DragTarget, e: React.MouseEvent) {
     if (status === "running") return;
     e.preventDefault();
-    const { x } = getSvgCoord(e.clientX, e.clientY);
+    e.stopPropagation();
+    const { x, y } = getSvgCoord(e.clientX, e.clientY);
     setDragTarget(target);
+
     let startValue = 0;
-    if (target === "stone") startValue = stoneWeight;
+    let startValue2: number | undefined;
+
+    if (target === "stone-weight") startValue = stoneWeight;
+    else if (target === "stone-position") startValue = fulcrumPosition;
     else if (target === "leverEnd") startValue = leverLength;
-    setDragInfo({ startX: x, startValue });
+    else if (target === "plate-left" || target === "plate-right")
+      startValue = plateDiameter;
+    else if (target === "fruit-height") {
+      startValue = fruitWeight;
+      startValue2 = moistureContent;
+    }
+
+    setDragInfo({ startX: x, startY: y, startValue, startValue2 });
   }
 
   useEffect(() => {
     function handleMove(e: MouseEvent) {
       if (!dragTarget || !dragInfo || !svgRef.current) return;
-      const { x } = getSvgCoord(e.clientX, e.clientY);
+      const { x, y } = getSvgCoord(e.clientX, e.clientY);
       const dx = x - dragInfo.startX;
+      const dy = y - dragInfo.startY;
 
-      if (dragTarget === "stone") {
-        const dy = dragInfo.startValue + dx * 0.8;
-        const newWeight = Math.max(5, Math.min(500, Math.round(dy / 5) * 5));
+      if (dragTarget === "stone-weight") {
+        const newWeight = Math.max(
+          5,
+          Math.min(500, Math.round((dragInfo.startValue - dy * 0.9) / 5) * 5)
+        );
         if (newWeight !== stoneWeight) {
           setParam("stoneWeight", newWeight);
         }
+      } else if (dragTarget === "stone-position") {
+        const minPos = Math.max(0.3, 0.8 / leverLength);
+        const rawPos = dragInfo.startValue + dx / (leverLength * pxPerMeter);
+        const newPos = Math.max(
+          minPos,
+          Math.min(0.95, Math.round(rawPos * 100) / 100)
+        );
+        if (newPos !== fulcrumPosition) {
+          setParam("fulcrumPosition", newPos);
+        }
       } else if (dragTarget === "leverEnd") {
-        const newLength = Math.max(1.0, Math.min(8, dragInfo.startValue + dx / pxPerMeter));
+        const newLength = Math.max(
+          1.0,
+          Math.min(8, dragInfo.startValue + dx / pxPerMeter)
+        );
         const rounded = Math.round(newLength * 10) / 10;
         if (rounded !== leverLength) {
           setParam("leverLength", rounded);
+        }
+      } else if (dragTarget === "plate-left" || dragTarget === "plate-right") {
+        const factor = dragTarget === "plate-right" ? 1 : -1;
+        const delta = (factor * dx * 2) / (pxPerMeter * 1.6);
+        const newDiameter = Math.max(
+          0.2,
+          Math.min(1.2, Math.round((dragInfo.startValue + delta) * 100) / 100)
+        );
+        if (newDiameter !== plateDiameter) {
+          setParam("plateDiameter", newDiameter);
+        }
+      } else if (dragTarget === "fruit-height") {
+        const newWeight = Math.max(
+          1,
+          Math.min(200, Math.round(dragInfo.startValue - dy * 0.6))
+        );
+        if (newWeight !== fruitWeight) {
+          setParam("fruitWeight", newWeight);
         }
       }
     }
@@ -134,10 +213,21 @@ export default function PressSideView() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [dragTarget, dragInfo, stoneWeight, leverLength, setParam]);
+  }, [
+    dragTarget,
+    dragInfo,
+    stoneWeight,
+    leverLength,
+    fulcrumPosition,
+    plateDiameter,
+    fruitWeight,
+    setParam,
+  ]);
 
   const cursorStyle = status === "running" ? "default" : "grab";
   const draggingStyle = dragTarget ? "grabbing" : cursorStyle;
+
+  const canInteract = status !== "running";
 
   return (
     <div className="vintage-card p-4 w-full h-full flex flex-col">
@@ -146,13 +236,18 @@ export default function PressSideView() {
           <span className="inline-block w-2 h-2 rounded-full bg-rust-500" />
           压榨机侧视图
         </h2>
-        <span className="text-[10px] text-slate-500 italic">
-          {status !== "running" ? "💡 拖动压石改重量 · 拖动杆尾改长度" : "模拟运行中..."}
+        <span className="text-[10px] text-slate-500 italic leading-tight text-right">
+          {canInteract
+            ? "💡 拖杆尾改长度 · 拖石头右/左改挂点 · 上下拖石头改重量 · 拖压盘边缘改尺寸 · 拖果料改重量"
+            : "模拟运行中..."}
         </span>
       </div>
       <div
         className="flex-1 relative rounded-md overflow-hidden"
-        style={{ background: "linear-gradient(180deg, #E8D9BE 0%, #F5EFE3 60%, #D4B98C 100%)" }}
+        style={{
+          background:
+            "linear-gradient(180deg, #E8D9BE 0%, #F5EFE3 60%, #D4B98C 100%)",
+        }}
       >
         <svg
           ref={svgRef}
@@ -194,13 +289,47 @@ export default function PressSideView() {
               <stop offset="50%" stopColor="#DAA520" />
               <stop offset="100%" stopColor="#8B6508" />
             </linearGradient>
-            <pattern id="grainPattern" patternUnits="userSpaceOnUse" width="6" height="20">
+            <pattern
+              id="grainPattern"
+              patternUnits="userSpaceOnUse"
+              width="6"
+              height="20"
+            >
               <rect width="6" height="20" fill="#7B3A10" />
-              <line x1="1" y1="0" x2="1" y2="20" stroke="#6B3410" strokeWidth="1" opacity="0.6" />
-              <line x1="3.5" y1="0" x2="3.5" y2="20" stroke="#8B4513" strokeWidth="0.8" opacity="0.5" />
-              <line x1="5" y1="0" x2="5" y2="20" stroke="#5A2A08" strokeWidth="1" opacity="0.4" />
+              <line
+                x1="1"
+                y1="0"
+                x2="1"
+                y2="20"
+                stroke="#6B3410"
+                strokeWidth="1"
+                opacity="0.6"
+              />
+              <line
+                x1="3.5"
+                y1="0"
+                x2="3.5"
+                y2="20"
+                stroke="#8B4513"
+                strokeWidth="0.8"
+                opacity="0.5"
+              />
+              <line
+                x1="5"
+                y1="0"
+                x2="5"
+                y2="20"
+                stroke="#5A2A08"
+                strokeWidth="1"
+                opacity="0.4"
+              />
             </pattern>
-            <pattern id="stonePattern" patternUnits="userSpaceOnUse" width="8" height="8">
+            <pattern
+              id="stonePattern"
+              patternUnits="userSpaceOnUse"
+              width="8"
+              height="8"
+            >
               <rect width="8" height="8" fill="#5C5C5C" />
               <circle cx="2" cy="2" r="0.8" fill="#4A4A4A" />
               <circle cx="6" cy="5" r="0.6" fill="#7A7A7A" />
@@ -224,8 +353,21 @@ export default function PressSideView() {
             opacity="0.4"
           />
 
-          <rect x={0} y={groundY} width={viewW} height={viewH - groundY} fill="url(#woodFrame)" />
-          <rect x={0} y={groundY} width={viewW} height={6} fill="#4A240B" opacity="0.5" />
+          <rect
+            x={0}
+            y={groundY}
+            width={viewW}
+            height={viewH - groundY}
+            fill="url(#woodFrame)"
+          />
+          <rect
+            x={0}
+            y={groundY}
+            width={viewW}
+            height={6}
+            fill="#4A240B"
+            opacity="0.5"
+          />
 
           <rect
             x={frameX - 16}
@@ -255,7 +397,14 @@ export default function PressSideView() {
             strokeWidth="1"
           />
 
-          <circle cx={pivotX} cy={pivotY} r={11} fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="2" />
+          <circle
+            cx={pivotX}
+            cy={pivotY}
+            r={11}
+            fill="#2A2A2A"
+            stroke="#1A1A1A"
+            strokeWidth="2"
+          />
           <circle cx={pivotX} cy={pivotY} r={4.5} fill="#5C5C5C" />
 
           <line
@@ -281,7 +430,7 @@ export default function PressSideView() {
 
           <g
             onMouseDown={(e) => handleMouseDown("leverEnd", e)}
-            style={{ cursor: draggingStyle }}
+            style={{ cursor: canInteract ? draggingStyle : "default" }}
           >
             <circle
               cx={leverEnd.x}
@@ -300,9 +449,9 @@ export default function PressSideView() {
               fill="#D4B98C"
               stroke="#8B4513"
               strokeWidth="1.5"
-              opacity={status !== "running" ? 0.9 : 0}
+              opacity={canInteract ? 0.9 : 0}
             />
-            {status !== "running" && (
+            {canInteract && (
               <text
                 x={leverEnd.x + 14}
                 y={leverEnd.y + 4}
@@ -311,12 +460,39 @@ export default function PressSideView() {
                 fontFamily="Source Serif Pro, serif"
                 fontWeight="600"
               >
-                拖我
+                拖改长度
               </text>
             )}
           </g>
 
-          <circle cx={pressPoint.x} cy={pressPoint.y} r={7.5} fill="#2A2A2A" stroke="#1A1A1A" strokeWidth="1.5" />
+          <line
+            x1={pivotX}
+            y1={pivotY - 32}
+            x2={pivotX}
+            y2={pivotY + 32}
+            stroke="#A0522D"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+            opacity="0.5"
+          />
+          <text
+            x={pivotX - 4}
+            y={pivotY - 38}
+            fill="#A0522D"
+            fontSize="10.5"
+            fontFamily="Source Serif Pro, serif"
+          >
+            支点
+          </text>
+
+          <circle
+            cx={pressPoint.x}
+            cy={pressPoint.y}
+            r={7.5}
+            fill="#2A2A2A"
+            stroke="#1A1A1A"
+            strokeWidth="1.5"
+          />
           <line
             x1={pressPoint.x}
             y1={pressPoint.y + 7.5}
@@ -333,6 +509,26 @@ export default function PressSideView() {
             stroke="#7A7A7A"
             strokeWidth="1"
           />
+
+          <line
+            x1={pressPointX}
+            y1={pivotY + 24}
+            x2={pressPointX}
+            y2={pivotY + 36}
+            stroke="#556B2F"
+            strokeWidth="1"
+            strokeDasharray="2 2"
+            opacity="0.6"
+          />
+          <text
+            x={pressPointX - 8}
+            y={pivotY + 46}
+            fill="#556B2F"
+            fontSize="9"
+            fontFamily="Source Serif Pro, serif"
+          >
+            压点 {PLATE_ARM_M}m
+          </text>
 
           <rect
             x={plungerX}
@@ -353,6 +549,60 @@ export default function PressSideView() {
             opacity="0.45"
             rx="4"
           />
+
+          {canInteract && (
+            <>
+              <g
+                onMouseDown={(e) => handleMouseDown("plate-left", e)}
+                style={{ cursor: "ew-resize" }}
+              >
+                <rect
+                  x={plungerX - 3}
+                  y={plungerTopY + 12}
+                  width={6}
+                  height={Math.max(16, plungerBottomY - plungerTopY - 20)}
+                  fill="#DAA520"
+                  opacity={dragTarget === "plate-left" ? 0.8 : 0.3}
+                  rx="2"
+                />
+                <line
+                  x1={plungerX}
+                  y1={plungerTopY + 16}
+                  x2={plungerX}
+                  y2={plungerBottomY - 8}
+                  stroke="#8B6508"
+                  strokeWidth="1.5"
+                  strokeDasharray="2 2"
+                  opacity="0.6"
+                />
+              </g>
+              <g
+                onMouseDown={(e) => handleMouseDown("plate-right", e)}
+                style={{ cursor: "ew-resize" }}
+              >
+                <rect
+                  x={plungerX + plungerWidth - 3}
+                  y={plungerTopY + 12}
+                  width={6}
+                  height={Math.max(16, plungerBottomY - plungerTopY - 20)}
+                  fill="#DAA520"
+                  opacity={dragTarget === "plate-right" ? 0.8 : 0.3}
+                  rx="2"
+                />
+                <line
+                  x1={plungerX + plungerWidth}
+                  y1={plungerTopY + 16}
+                  x2={plungerX + plungerWidth}
+                  y2={plungerBottomY - 8}
+                  stroke="#8B6508"
+                  strokeWidth="1.5"
+                  strokeDasharray="2 2"
+                  opacity="0.6"
+                />
+              </g>
+            </>
+          )}
+
           <text
             x={pressPoint.x}
             y={plungerTopY - 4}
@@ -389,20 +639,43 @@ export default function PressSideView() {
           />
 
           {fruitHeight > 2 && (
-            <rect
-              x={frameX + 10}
-              y={fruitTopY}
-              width={frameWidth - 20}
-              height={fruitHeight}
-              fill="url(#fruitGrad)"
-              rx="2"
-            />
+            <g
+              onMouseDown={(e) => handleMouseDown("fruit-height", e)}
+              style={{
+                cursor: canInteract ? "ns-resize" : "default",
+              }}
+              onDoubleClick={() => canInteract && setShowFruitPanel((v) => !v)}
+            >
+              <rect
+                x={frameX + 10}
+                y={fruitTopY}
+                width={frameWidth - 20}
+                height={fruitHeight}
+                fill="url(#fruitGrad)"
+                rx="2"
+              />
+              {canInteract && (
+                <rect
+                  x={frameX + 10}
+                  y={fruitTopY}
+                  width={frameWidth - 20}
+                  height={6}
+                  fill="#DAA520"
+                  opacity={dragTarget === "fruit-height" ? 0.9 : 0.35}
+                  rx="2"
+                />
+              )}
+            </g>
           )}
 
           {fruitHeight > 10 &&
             Array.from({ length: 12 }).map((_, i) => {
-              const cx = frameX + 20 + ((i * 31) % (frameWidth - 50));
-              const cy = fruitTopY + 14 + ((i * 19) % Math.max(10, fruitHeight - 24));
+              const cx =
+                frameX + 20 + ((i * 31) % (frameWidth - 50));
+              const cy =
+                fruitTopY +
+                14 +
+                ((i * 19) % Math.max(10, fruitHeight - 24));
               const r = 4 + (i % 3) * 2;
               return (
                 <circle
@@ -412,9 +685,98 @@ export default function PressSideView() {
                   r={r}
                   fill="#3F5020"
                   opacity="0.4"
+                  pointerEvents="none"
                 />
               );
             })}
+
+          {canInteract && fruitHeight > 2 && (
+            <text
+              x={frameX + frameWidth / 2}
+              y={fruitTopY - 6}
+              fill="#6B3410"
+              fontSize="9"
+              textAnchor="middle"
+              fontFamily="Source Serif Pro, serif"
+              fontWeight="600"
+            >
+              {fruitWeight}kg · {moistureContent}%含水
+              {dragTarget !== "fruit-height" && " · 拖上/下改重量，双击改含水"}
+            </text>
+          )}
+
+          {showFruitPanel && canInteract && (
+            <g>
+              <rect
+                x={frameX + 10}
+                y={groundY - 30 - initialFruitHeight - 66}
+                width={frameWidth - 20}
+                height={56}
+                fill="#F5EFE3"
+                stroke="#8B4513"
+                strokeWidth="1.5"
+                rx="4"
+              />
+              <text
+                x={frameX + 20}
+                y={groundY - 30 - initialFruitHeight - 46}
+                fill="#4A240B"
+                fontSize="10"
+                fontFamily="Source Serif Pro, serif"
+                fontWeight="600"
+              >
+                果料含水率：
+              </text>
+              <foreignObject
+                x={frameX + 100}
+                y={groundY - 30 - initialFruitHeight - 58}
+                width={frameWidth - 140}
+                height={20}
+              >
+                <div style={{ width: "100%", padding: "2px 4px" }}>
+                  <input
+                    type="range"
+                    min={20}
+                    max={95}
+                    step={1}
+                    value={moistureContent}
+                    onChange={(e) =>
+                      setParam(
+                        "moistureContent",
+                        parseFloat(e.target.value)
+                      )
+                    }
+                    style={{
+                      width: "100%",
+                      accentColor: "#556B2F",
+                    }}
+                  />
+                </div>
+              </foreignObject>
+              <text
+                x={frameX + frameWidth - 20}
+                y={groundY - 30 - initialFruitHeight - 46}
+                fill="#556B2F"
+                fontSize="11"
+                textAnchor="end"
+                fontFamily="Cinzel, serif"
+                fontWeight="700"
+              >
+                {moistureContent}%
+              </text>
+              <text
+                x={frameX + frameWidth / 2}
+                y={groundY - 30 - initialFruitHeight - 20}
+                fill="#8B4513"
+                fontSize="9"
+                textAnchor="middle"
+                fontFamily="Source Serif Pro, serif"
+                fontStyle="italic"
+              >
+                拖动滑块调整含水率，再次双击果料关闭
+              </text>
+            </g>
+          )}
 
           <rect
             x={frameX + 10}
@@ -467,101 +829,160 @@ export default function PressSideView() {
                 opacity="0.85"
                 style={{
                   animation: `drip 1.4s ease-in ${i * 0.45}s infinite`,
-                  transformOrigin: `${frameX + 60 + i * 55}px ${groundY - 32}px`,
+                  transformOrigin: `${frameX + 60 + i * 55}px ${
+                    groundY - 32
+                  }px`,
                 }}
               />
             ))}
 
-          <g
-            onMouseDown={(e) => handleMouseDown("stone", e)}
-            style={{ cursor: draggingStyle }}
-          >
-            <rect
-              x={stonePoint.x - stoneSize / 2 - 3}
-              y={stonePoint.y + 3}
-              width={stoneSize + 6}
-              height={stoneSize * 0.8 + 6}
-              fill="#8B4513"
-              opacity={dragTarget === "stone" ? 0.25 : 0}
-              rx="6"
+          <g style={{ cursor: canInteract ? draggingStyle : "default" }}>
+            <line
+              x1={stonePoint.x}
+              y1={stonePoint.y}
+              x2={stonePoint.x}
+              y2={stonePoint.y + 6}
+              stroke="#2A2A2A"
+              strokeWidth="2"
             />
-            <rect
-              x={stonePoint.x - stoneSize / 2}
-              y={stonePoint.y + 6}
-              width={stoneSize}
-              height={stoneSize * 0.8}
-              fill="url(#stonePattern)"
-              stroke="#1A1A1A"
-              strokeWidth="1.5"
-              rx="4"
-            />
-            <rect
-              x={stonePoint.x - stoneSize / 2 + 3}
-              y={stonePoint.y + 9}
-              width={stoneSize * 0.32}
-              height={4}
-              fill="#7A7A7A"
-              opacity="0.5"
-              rx="2"
-            />
-            {status !== "running" && (
+            {canInteract && (
+              <g
+                onMouseDown={(e) => handleMouseDown("stone-position", e)}
+                style={{ cursor: "ew-resize" }}
+              >
+                <circle
+                  cx={stonePoint.x}
+                  cy={stonePoint.y + 2}
+                  r={8}
+                  fill="#DAA520"
+                  opacity={dragTarget === "stone-position" ? 0.7 : 0.15}
+                />
+              </g>
+            )}
+            <g
+              onMouseDown={(e) => handleMouseDown("stone-weight", e)}
+              style={{ cursor: canInteract ? draggingStyle : "default" }}
+            >
+              <rect
+                x={stonePoint.x - stoneSize / 2 - 3}
+                y={stonePoint.y + 3}
+                width={stoneSize + 6}
+                height={stoneSize * 0.8 + 6}
+                fill="#8B4513"
+                opacity={dragTarget === "stone-weight" ? 0.25 : 0}
+                rx="6"
+              />
+              <rect
+                x={stonePoint.x - stoneSize / 2}
+                y={stonePoint.y + 6}
+                width={stoneSize}
+                height={stoneSize * 0.8}
+                fill="url(#stonePattern)"
+                stroke="#1A1A1A"
+                strokeWidth="1.5"
+                rx="4"
+              />
+              <rect
+                x={stonePoint.x - stoneSize / 2 + 3}
+                y={stonePoint.y + 9}
+                width={stoneSize * 0.32}
+                height={4}
+                fill="#7A7A7A"
+                opacity="0.5"
+                rx="2"
+              />
+            </g>
+            {canInteract && (
               <text
                 x={stonePoint.x}
-                y={stonePoint.y + stoneSize * 0.8 + 20}
+                y={stonePoint.y + stoneSize * 0.8 + 22}
                 fill="#4A240B"
-                fontSize="10.5"
+                fontSize="10"
                 textAnchor="middle"
                 fontFamily="Source Serif Pro, serif"
                 fontWeight="600"
               >
-                ⇔ 压石 {stoneWeight}kg
+                {stoneWeight}kg · {(fulcrumPosition * 100).toFixed(0)}%
+              </text>
+            )}
+            {canInteract && dragTarget === null && (
+              <text
+                x={stonePoint.x}
+                y={stonePoint.y + stoneSize * 0.8 + 34}
+                fill="#8B4513"
+                fontSize="8.5"
+                textAnchor="middle"
+                fontFamily="Source Serif Pro, serif"
+                fontStyle="italic"
+              >
+                上下拖改重量 · 左右拖改挂点
               </text>
             )}
           </g>
 
-          <line
-            x1={pivotX}
-            y1={pivotY - 28}
-            x2={pivotX}
-            y2={pivotY + 28}
-            stroke="#A0522D"
-            strokeWidth="1"
-            strokeDasharray="3 3"
-            opacity="0.5"
-          />
-          <text x={pivotX - 4} y={pivotY - 34} fill="#A0522D" fontSize="10.5" fontFamily="Source Serif Pro, serif">
-            支点
-          </text>
-
-          <line
-            x1={pressPointX}
-            y1={pivotY + 24}
-            x2={pressPointX}
-            y2={pivotY + 36}
-            stroke="#556B2F"
-            strokeWidth="1"
-            strokeDasharray="2 2"
-            opacity="0.6"
-          />
-          <text x={pressPointX - 8} y={pivotY + 46} fill="#556B2F" fontSize="9" fontFamily="Source Serif Pro, serif">
-            压点 {PLATE_ARM_M}m
-          </text>
-
-          <g transform={`translate(${viewW - 160}, 16)`}>
-            <rect x={0} y={0} width={144} height={64} fill="#F5EFE3" stroke="#8B4513" strokeWidth="1.5" rx="4" opacity="0.95" />
-            <text x={10} y={19} fill="#4A240B" fontSize="11" fontFamily="Source Serif Pro, serif" fontWeight="600">
+          <g transform={`translate(${viewW - 160}, 14)`}>
+            <rect
+              x={0}
+              y={0}
+              width={144}
+              height={82}
+              fill="#F5EFE3"
+              stroke="#8B4513"
+              strokeWidth="1.5"
+              rx="4"
+              opacity="0.95"
+            />
+            <text
+              x={10}
+              y={19}
+              fill="#4A240B"
+              fontSize="11"
+              fontFamily="Source Serif Pro, serif"
+              fontWeight="600"
+            >
               当前压力
             </text>
-            <text x={10} y={42} fill={pressureColor} fontSize="20" fontFamily="Cinzel, serif" fontWeight="700">
+            <text
+              x={10}
+              y={42}
+              fill={pressureColor}
+              fontSize="20"
+              fontFamily="Cinzel, serif"
+              fontWeight="700"
+            >
               {currentPressure.toFixed(1)} kPa
             </text>
-            <text x={10} y={56} fill="#556B2F" fontSize="10.5" fontFamily="Source Serif Pro, serif">
+            <text
+              x={10}
+              y={58}
+              fill="#556B2F"
+              fontSize="10.5"
+              fontFamily="Source Serif Pro, serif"
+            >
               出汁 {currentJuice.toFixed(0)} mL
+            </text>
+            <text
+              x={10}
+              y={73}
+              fill="#6B3410"
+              fontSize="10.5"
+              fontFamily="Source Serif Pro, serif"
+            >
+              压缩 {(compressionRatio * 100).toFixed(0)}%
             </text>
           </g>
 
-          <text x={frameX + 14} y={groundY + 54} fill="#4A240B" fontSize="10" fontFamily="Source Serif Pro, serif">
-            杠杆 {leverLength.toFixed(1)}m · 挂点 {(fulcrumPosition * 100).toFixed(0)}% · 压缩 {(compressionRatio * 100).toFixed(0)}%
+          <text
+            x={frameX + 14}
+            y={viewH - 8}
+            fill="#4A240B"
+            fontSize="10"
+            fontFamily="Source Serif Pro, serif"
+          >
+            杠杆 {leverLength.toFixed(1)}m · 挂点{" "}
+            {(fulcrumPosition * 100).toFixed(0)}% · 压盘 Ø
+            {plateDiameter.toFixed(2)}m · 果料 {fruitWeight}kg /{" "}
+            {moistureContent}%
           </text>
         </svg>
       </div>

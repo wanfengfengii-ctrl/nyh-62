@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { Save, FolderOpen, Trash2, GitCompare, X, Check, Download } from "lucide-react";
+import {
+  Save,
+  FolderOpen,
+  Trash2,
+  GitCompare,
+  X,
+  Check,
+  Download,
+  Copy,
+  FileJson,
+  FileSpreadsheet,
+} from "lucide-react";
 import { usePressStore } from "../store/usePressStore";
 import { ExperimentPlan } from "../types";
 
@@ -10,6 +21,8 @@ export default function PlanManager() {
     savePlan,
     loadPlan,
     deletePlan,
+    duplicatePlan,
+    exportPlans,
     togglePlanSelection,
     clearSelection,
     simulationResult,
@@ -17,12 +30,37 @@ export default function PlanManager() {
 
   const [planName, setPlanName] = useState("");
   const [showCompare, setShowCompare] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const handleSave = () => {
     const id = savePlan(planName);
     if (id) {
       setPlanName("");
     }
+  };
+
+  const handleDuplicate = (id: string) => {
+    duplicatePlan(id);
+  };
+
+  const handleExport = (format: "json" | "csv") => {
+    const data = exportPlans(
+      selectedPlanIds.length >= 2 ? selectedPlanIds : [],
+      format
+    );
+    const mime = format === "json" ? "application/json" : "text/csv;charset=utf-8";
+    const blob = new Blob([data], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `press_experiments_${new Date()
+      .toISOString()
+      .slice(0, 10)}.${format}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setShowExportMenu(false);
   };
 
   const selectedPlans = plans.filter((p) => selectedPlanIds.includes(p.id));
@@ -40,7 +78,14 @@ export default function PlanManager() {
       .filter((p) => p.result?.feasible)
       .map((p) => p.result?.[key] as number | undefined);
     if (values.length === 0 || values.some((v) => v === undefined)) return null;
-    if (key === "residueMoisture") return Math.min(...(values as number[]));
+    if (
+      key === "residueMoisture" ||
+      key === "stableJuiceTime"
+    ) {
+      const filtered = (values as number[]).filter((v) => v > 0);
+      if (filtered.length === 0) return null;
+      return Math.min(...filtered);
+    }
     return Math.max(...(values as number[]));
   };
 
@@ -51,15 +96,57 @@ export default function PlanManager() {
           <span className="inline-block w-2 h-2 rounded-full bg-wood-500" />
           实验方案
         </h2>
-        {selectedPlanIds.length >= 2 && (
-          <button
-            onClick={() => setShowCompare((v) => !v)}
-            className="vintage-btn-primary text-xs px-3 py-1 flex items-center gap-1"
-          >
-            <GitCompare size={14} />
-            {showCompare ? "关闭对比" : `对比 ${selectedPlanIds.length} 个方案`}
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {plans.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowExportMenu((v) => !v)}
+                className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-1"
+                title="导出方案"
+              >
+                <Download size={14} />
+                导出
+              </button>
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-1 z-10 bg-wood-50 border border-wood-300 rounded-md shadow-lg overflow-hidden">
+                  <button
+                    onClick={() => handleExport("json")}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-wood-700 hover:bg-wood-100 text-left whitespace-nowrap"
+                  >
+                    <FileJson size={14} />
+                    导出 JSON
+                    {selectedPlanIds.length >= 2 && (
+                      <span className="text-[10px] text-olive-600 ml-1">
+                        (已选 {selectedPlanIds.length})
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => handleExport("csv")}
+                    className="flex items-center gap-2 w-full px-3 py-2 text-xs text-wood-700 hover:bg-wood-100 text-left whitespace-nowrap border-t border-wood-200"
+                  >
+                    <FileSpreadsheet size={14} />
+                    导出 CSV
+                    {selectedPlanIds.length >= 2 && (
+                      <span className="text-[10px] text-olive-600 ml-1">
+                        (已选 {selectedPlanIds.length})
+                      </span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {selectedPlanIds.length >= 2 && (
+            <button
+              onClick={() => setShowCompare((v) => !v)}
+              className="vintage-btn-primary text-xs px-3 py-1 flex items-center gap-1"
+            >
+              <GitCompare size={14} />
+              {showCompare ? "关闭对比" : `对比 ${selectedPlanIds.length} 个方案`}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex gap-2">
@@ -106,13 +193,21 @@ export default function PlanManager() {
               </button>
             </div>
           </div>
-          <table className="w-full text-xs border-collapse">
+          <table className="w-full text-xs border-collapse min-w-[520px]">
             <thead>
               <tr className="text-wood-700 border-b border-wood-200">
                 <th className="text-left p-2 font-display">指标</th>
                 {selectedPlans.map((p) => (
-                  <th key={p.id} className="text-center p-2 font-display">
-                    {p.name.slice(0, 10)}
+                  <th
+                    key={p.id}
+                    className="text-center p-2 font-display whitespace-nowrap"
+                  >
+                    {p.name.slice(0, 12)}
+                    {!p.result?.feasible && (
+                      <span className="ml-1 text-[9px] text-rust-500 font-normal">
+                        (不可行)
+                      </span>
+                    )}
                   </th>
                 ))}
               </tr>
@@ -120,15 +215,50 @@ export default function PlanManager() {
             <tbody className="font-body">
               {[
                 { key: "leverLength", label: "杠杆长度", unit: "m", param: true },
-                { key: "fulcrumPosition", label: "挂点位置", unit: "%", param: true, pct: true },
+                {
+                  key: "fulcrumPosition",
+                  label: "挂点位置",
+                  unit: "%",
+                  param: true,
+                  pct: true,
+                },
                 { key: "plateDiameter", label: "压盘直径", unit: "m", param: true },
                 { key: "stoneWeight", label: "压石重量", unit: "kg", param: true },
                 { key: "fruitWeight", label: "果料重量", unit: "kg", param: true },
                 { key: "moistureContent", label: "含水率", unit: "%", param: true },
-                { key: "peakPressure", label: "峰值压力", unit: "kPa", param: false },
-                { key: "totalJuice", label: "总出汁量", unit: "mL", param: false },
-                { key: "residueMoisture", label: "残渣含水率", unit: "%", param: false, lowerBetter: true },
-                { key: "juiceYield", label: "出汁率", unit: "%", param: false },
+                {
+                  key: "peakPressure",
+                  label: "峰值压力",
+                  unit: "kPa",
+                  param: false,
+                },
+                {
+                  key: "totalJuice",
+                  label: "总出汁量",
+                  unit: "mL",
+                  param: false,
+                },
+                {
+                  key: "juiceYield",
+                  label: "出汁率",
+                  unit: "%",
+                  param: false,
+                },
+                {
+                  key: "residueMoisture",
+                  label: "残渣含水率",
+                  unit: "%",
+                  param: false,
+                  lowerBetter: true,
+                },
+                {
+                  key: "stableJuiceTime",
+                  label: "稳定出汁时间",
+                  unit: "s",
+                  param: false,
+                  lowerBetter: true,
+                  isTime: true,
+                },
               ].map((row) => {
                 const best =
                   !row.param && selectedPlans.every((p) => p.result?.feasible)
@@ -136,20 +266,37 @@ export default function PlanManager() {
                     : null;
                 return (
                   <tr key={row.key} className="border-b border-wood-100">
-                    <td className="p-2 text-wood-700 font-semibold">
+                    <td className="p-2 text-wood-700 font-semibold whitespace-nowrap">
                       {row.label}
-                      <span className="text-slate-400 text-[10px] ml-1">({row.unit})</span>
+                      <span className="text-slate-400 text-[10px] ml-1">
+                        ({row.unit})
+                      </span>
                     </td>
                     {selectedPlans.map((p) => {
-                      let val: number | undefined;
+                      let val: number | undefined | string;
                       if (row.param) {
-                        val = (p.params as unknown as Record<string, number>)[row.key];
+                        val = (p.params as unknown as Record<string, number>)[
+                          row.key
+                        ];
                         if (row.pct) val = val * 100;
                       } else {
-                        val = (p.result as unknown as Record<string, number> | undefined)?.[row.key];
+                        val = (
+                          p.result as unknown as
+                            | Record<string, number>
+                            | undefined
+                        )?.[row.key];
                       }
-                      const isBest = best !== null && val === best;
                       const feasible = p.result?.feasible;
+                      const isBest =
+                        best !== null && typeof val === "number" && val === best;
+                      const displayVal =
+                        typeof val === "number"
+                          ? row.isTime
+                            ? val > 0
+                              ? val.toFixed(1)
+                              : "未达成"
+                            : val.toFixed(1)
+                          : "—";
                       return (
                         <td
                           key={p.id}
@@ -161,16 +308,44 @@ export default function PlanManager() {
                               : "text-slate-700"
                           }`}
                         >
-                          {typeof val === "number"
-                            ? val.toFixed(1)
-                            : "—"}
-                          {isBest && <Check size={10} className="inline ml-0.5" />}
+                          {displayVal}
+                          {isBest && (
+                            <Check size={10} className="inline ml-0.5" />
+                          )}
                         </td>
                       );
                     })}
                   </tr>
                 );
               })}
+              <tr className="border-b border-wood-100 bg-wood-100/50">
+                <td className="p-2 text-wood-700 font-semibold">可行性</td>
+                {selectedPlans.map((p) => (
+                  <td
+                    key={p.id}
+                    className={`text-center p-2 font-semibold ${
+                      p.result?.feasible ? "text-olive-600" : "text-rust-500"
+                    }`}
+                  >
+                    {p.result?.feasible ? "可行 ✓" : "不可行 ✕"}
+                  </td>
+                ))}
+              </tr>
+              {selectedPlans.some((p) => !p.result?.feasible) && (
+                <tr className="bg-amber-50/50">
+                  <td className="p-2 text-rust-600 font-semibold align-top">
+                    不可行原因
+                  </td>
+                  {selectedPlans.map((p) => (
+                    <td
+                      key={p.id}
+                      className="text-left p-2 text-[10px] text-rust-600 align-top"
+                    >
+                      {p.result?.feasible ? "—" : p.result?.infeasibleReason}
+                    </td>
+                  ))}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -179,7 +354,8 @@ export default function PlanManager() {
       <div className="flex-1 overflow-y-auto space-y-2 pr-1">
         {plans.length === 0 && (
           <div className="text-center text-slate-400 text-sm py-8 italic">
-            暂无已保存方案<br />
+            暂无已保存方案
+            <br />
             <span className="text-xs">完成模拟后点击保存即可记录方案</span>
           </div>
         )}
@@ -216,7 +392,14 @@ export default function PlanManager() {
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-1 flex-shrink-0">
+                <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
+                  <button
+                    onClick={() => handleDuplicate(plan.id)}
+                    className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-0.5"
+                    title="复制方案"
+                  >
+                    <Copy size={13} />
+                  </button>
                   <button
                     onClick={() => loadPlan(plan.id)}
                     className="vintage-btn-secondary text-xs px-2 py-1 flex items-center gap-0.5"
@@ -235,27 +418,51 @@ export default function PlanManager() {
               </div>
               <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 pl-6">
                 <span>
-                  杠杆 <span className="text-wood-700 font-semibold">{plan.params.leverLength}m</span>
+                  杠杆{" "}
+                  <span className="text-wood-700 font-semibold">
+                    {plan.params.leverLength}m
+                  </span>
                 </span>
                 <span>
-                  压盘 <span className="text-wood-700 font-semibold">Ø{plan.params.plateDiameter.toFixed(2)}m</span>
+                  挂点{" "}
+                  <span className="text-wood-700 font-semibold">
+                    {(plan.params.fulcrumPosition * 100).toFixed(0)}%
+                  </span>
                 </span>
                 <span>
-                  压石 <span className="text-wood-700 font-semibold">{plan.params.stoneWeight}kg</span>
+                  压盘{" "}
+                  <span className="text-wood-700 font-semibold">
+                    Ø{plan.params.plateDiameter.toFixed(2)}m
+                  </span>
                 </span>
                 <span>
-                  果料 <span className="text-wood-700 font-semibold">{plan.params.fruitWeight}kg</span>
+                  压石{" "}
+                  <span className="text-wood-700 font-semibold">
+                    {plan.params.stoneWeight}kg
+                  </span>
                 </span>
                 <span>
-                  含水 <span className="text-wood-700 font-semibold">{plan.params.moistureContent}%</span>
+                  果料{" "}
+                  <span className="text-wood-700 font-semibold">
+                    {plan.params.fruitWeight}kg / {plan.params.moistureContent}%
+                  </span>
                 </span>
                 {plan.result?.feasible && (
                   <span className="ml-auto text-amber-700 font-semibold flex items-center gap-0.5">
                     <Download size={10} />
-                    {plan.result.totalJuice.toFixed(0)}mL · {plan.result.juiceYield.toFixed(0)}%
+                    {plan.result.totalJuice.toFixed(0)}mL ·{" "}
+                    {plan.result.juiceYield.toFixed(0)}% ·{" "}
+                    {plan.result.stableJuiceTime > 0
+                      ? `${plan.result.stableJuiceTime.toFixed(0)}s稳`
+                      : "未稳"}
                   </span>
                 )}
               </div>
+              {plan.result && !plan.result.feasible && (
+                <div className="mt-1 pl-6 text-[10px] text-rust-500 italic">
+                  {plan.result.infeasibleReason}
+                </div>
+              )}
             </div>
           );
         })}

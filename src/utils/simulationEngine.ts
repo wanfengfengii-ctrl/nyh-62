@@ -34,6 +34,19 @@ export function computeMaxCompression(pressure: number): number {
   return Math.min(0.7, pressure / MAX_PRESSURE_FOR_COMPRESSION);
 }
 
+export function computeInitialStatePoint(params: PressParams): TimeSeriesPoint {
+  const pressure = computePressure(params);
+  const maxCompression = computeMaxCompression(pressure);
+  const compressionRatio = maxCompression;
+  const effectivePressure = pressure * (0.4 + 0.6 * compressionRatio);
+  return {
+    time: 0,
+    pressure: Number(effectivePressure.toFixed(2)),
+    juice: 0,
+    compression: Number(compressionRatio.toFixed(4)),
+  };
+}
+
 export function detectStableJuiceTime(
   series: TimeSeriesPoint[],
   theoreticalWater: number

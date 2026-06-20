@@ -252,6 +252,7 @@ export default function ControlPanel() {
                           className={`vintage-input w-20 text-right text-sm ${
                             hasError ? "error" : ""
                           }`}
+                          disabled={status === "running"}
                         />
                         <span className="text-xs text-slate-500 w-6">
                           {f.unit}

@@ -8,7 +8,7 @@ import {
   SIMULATION_DT,
 } from "../types";
 import { validateParams } from "../utils/validateParams";
-import { runFullSimulation, computePressure } from "../utils/simulationEngine";
+import { runFullSimulation, computePressure, computeInitialStatePoint } from "../utils/simulationEngine";
 
 interface PressStore {
   params: PressParams;
@@ -87,16 +87,14 @@ function savePlansToStorage(plans: ExperimentPlan[]) {
 }
 
 function buildInitialSimulationState(): SimulationState {
-  const pressure = computePressure(defaultParams);
+  const initialPoint = computeInitialStatePoint(defaultParams);
   return {
     status: "idle",
-    currentTime: 0,
-    currentPressure: pressure,
-    currentJuice: 0,
-    compressionRatio: 0,
-    displayedPoints: [
-      { time: 0, pressure, juice: 0, compression: 0 },
-    ],
+    currentTime: initialPoint.time,
+    currentPressure: initialPoint.pressure,
+    currentJuice: initialPoint.juice,
+    compressionRatio: initialPoint.compression,
+    displayedPoints: [initialPoint],
   };
 }
 
@@ -182,34 +180,34 @@ export const usePressStore = create<PressStore>((set, get) => ({
 
   setParam: (key, value) => {
     const next = { ...get().params, [key]: value };
-    const pressure = computePressure(next);
+    const initialPoint = computeInitialStatePoint(next);
     set({
       params: next,
       dirtyParams: true,
       simulationState: {
         status: "idle",
-        currentTime: 0,
-        currentPressure: pressure,
-        currentJuice: 0,
-        compressionRatio: 0,
-        displayedPoints: [{ time: 0, pressure, juice: 0, compression: 0 }],
+        currentTime: initialPoint.time,
+        currentPressure: initialPoint.pressure,
+        currentJuice: initialPoint.juice,
+        compressionRatio: initialPoint.compression,
+        displayedPoints: [initialPoint],
       },
       simulationResult: null,
     });
   },
 
   setParams: (params) => {
-    const pressure = computePressure(params);
+    const initialPoint = computeInitialStatePoint(params);
     set({
       params,
       dirtyParams: false,
       simulationState: {
         status: "idle",
-        currentTime: 0,
-        currentPressure: pressure,
-        currentJuice: 0,
-        compressionRatio: 0,
-        displayedPoints: [{ time: 0, pressure, juice: 0, compression: 0 }],
+        currentTime: initialPoint.time,
+        currentPressure: initialPoint.pressure,
+        currentJuice: initialPoint.juice,
+        compressionRatio: initialPoint.compression,
+        displayedPoints: [initialPoint],
       },
       simulationResult: null,
     });
@@ -221,18 +219,34 @@ export const usePressStore = create<PressStore>((set, get) => ({
     if (!validation.valid) return false;
 
     const fullResult = runFullSimulation(params);
-    const pressure = computePressure(params);
+    const initialPoint = fullResult.timeSeries[0];
+
+    if (!fullResult.feasible) {
+      set({
+        simulationResult: fullResult,
+        dirtyParams: false,
+        simulationState: {
+          status: "finished",
+          currentTime: initialPoint.time,
+          currentPressure: initialPoint.pressure,
+          currentJuice: initialPoint.juice,
+          compressionRatio: initialPoint.compression,
+          displayedPoints: [...fullResult.timeSeries],
+        },
+      });
+      return true;
+    }
 
     set({
       simulationResult: fullResult,
       dirtyParams: false,
       simulationState: {
         status: "running",
-        currentTime: 0,
-        currentPressure: pressure,
-        currentJuice: 0,
-        compressionRatio: 0,
-        displayedPoints: [{ time: 0, pressure, juice: 0, compression: 0 }],
+        currentTime: initialPoint.time,
+        currentPressure: initialPoint.pressure,
+        currentJuice: initialPoint.juice,
+        compressionRatio: initialPoint.compression,
+        displayedPoints: [initialPoint],
       },
     });
     return true;
@@ -253,16 +267,16 @@ export const usePressStore = create<PressStore>((set, get) => ({
   },
 
   resetSimulation: () => {
-    const pressure = computePressure(get().params);
+    const initialPoint = computeInitialStatePoint(get().params);
     set({
       simulationResult: null,
       simulationState: {
         status: "idle",
-        currentTime: 0,
-        currentPressure: pressure,
-        currentJuice: 0,
-        compressionRatio: 0,
-        displayedPoints: [{ time: 0, pressure, juice: 0, compression: 0 }],
+        currentTime: initialPoint.time,
+        currentPressure: initialPoint.pressure,
+        currentJuice: initialPoint.juice,
+        compressionRatio: initialPoint.compression,
+        displayedPoints: [initialPoint],
       },
     });
   },

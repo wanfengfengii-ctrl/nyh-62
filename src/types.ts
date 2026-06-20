@@ -291,3 +291,105 @@ export interface ShareLinkData {
 }
 
 export type RightPanelTab = "report" | "history" | "plans" | "comparison" | "trajectory" | "recommendation";
+
+export type TrainingDifficulty = "beginner" | "intermediate" | "advanced";
+export type TrainingMode = "teaching" | "exam" | "practice";
+export type TrainingTaskStatus = "not_started" | "in_progress" | "submitted" | "completed";
+
+export interface TrainingTaskStep {
+  id: string;
+  title: string;
+  description: string;
+  hint?: string;
+  paramTargets?: Partial<PressParams>;
+  expectedAction?: "set_param" | "start_simulation" | "check_result";
+}
+
+export interface TrainingTaskTarget {
+  minJuiceYield?: number;
+  maxPeakPressure?: number;
+  minTotalJuice?: number;
+  maxStableJuiceTime?: number;
+  maxResidueMoisture?: number;
+  targetParams?: Partial<PressParams>;
+  paramTolerance?: number;
+}
+
+export interface TrainingTask {
+  id: string;
+  title: string;
+  description: string;
+  difficulty: TrainingDifficulty;
+  mode: TrainingMode;
+  duration: number;
+  steps: TrainingTaskStep[];
+  targets: TrainingTaskTarget;
+  passScore: number;
+  tags: string[];
+  learningObjectives: string[];
+  prerequisites?: string[];
+}
+
+export interface ScoreDimension {
+  key: "params" | "pressure" | "efficiency" | "structure";
+  label: string;
+  score: number;
+  maxScore: number;
+  weight: number;
+  details: string;
+}
+
+export interface TrainingError {
+  id: string;
+  category: "param_error" | "operation_error" | "result_error";
+  severity: "critical" | "warning" | "info";
+  title: string;
+  description: string;
+  relatedParam?: keyof PressParams;
+  suggestion: string;
+}
+
+export interface TrainingFeedback {
+  strengths: string[];
+  weaknesses: string[];
+  suggestions: {
+    title: string;
+    description: string;
+    priority: "high" | "medium" | "low";
+    expectedImprovement?: string;
+  }[];
+  nextSteps: string[];
+  knowledgeGaps: string[];
+}
+
+export interface TrainingResult {
+  id: string;
+  taskId: string;
+  taskTitle: string;
+  submittedAt: number;
+  totalScore: number;
+  maxScore: number;
+  percentage: number;
+  grade: "excellent" | "good" | "pass" | "fail";
+  passed: boolean;
+  dimensions: ScoreDimension[];
+  errors: TrainingError[];
+  feedback: TrainingFeedback;
+  params: PressParams;
+  result: SimulationResult | null;
+  timeSpent: number;
+  hintsUsed: number;
+}
+
+export interface TrainingState {
+  activeTask: TrainingTask | null;
+  currentStepIndex: number;
+  status: TrainingTaskStatus;
+  startTime: number | null;
+  hintsUsed: number;
+  showHints: boolean;
+  trainingResults: TrainingResult[];
+  lastResult: TrainingResult | null;
+}
+
+export type AppViewMode = "simulation" | "training";

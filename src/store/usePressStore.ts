@@ -20,6 +20,10 @@ import {
   ShareLinkData,
   ParameterComparison,
   ResultComparison,
+  TrainingTask,
+  TrainingState,
+  TrainingResult,
+  AppViewMode,
 } from "../types";
 import { validateParams } from "../utils/validateParams";
 import { runFullSimulation, computePressure, computeInitialStatePoint } from "../utils/simulationEngine";
@@ -27,6 +31,11 @@ import {
   generateExperimentReport,
   createAdjustmentRecord,
 } from "../utils/reportGenerator";
+import {
+  getTrainingTasks,
+  getTaskById,
+  calculateTrainingResult,
+} from "../utils/trainingEngine";
 
 interface PressStore {
   params: PressParams;
@@ -94,6 +103,20 @@ interface PressStore {
   exportReportsBatch: (reportIds: string[], options: BatchExportOptions) => string;
   generateShareLink: (reportIds: string[], expiresInHours?: number) => ShareLinkData;
   getShareLink: (id: string) => ShareLinkData | null;
+
+  viewMode: AppViewMode;
+  setViewMode: (mode: AppViewMode) => void;
+
+  training: TrainingState;
+  startTrainingTask: (taskId: string) => boolean;
+  nextTrainingStep: () => void;
+  prevTrainingStep: () => void;
+  setCurrentTrainingStep: (index: number) => void;
+  toggleTrainingHints: () => void;
+  useHint: () => void;
+  submitTrainingResult: () => TrainingResult | null;
+  resetTraining: () => void;
+  getTrainingTaskList: () => TrainingTask[];
 }
 
 const STORAGE_KEY = "press_experiment_plans";
@@ -790,6 +813,20 @@ export const usePressStore = create<PressStore>((set, get) => ({
     currentIndex: 0,
     speed: 1,
     history: [],
+  },
+
+  viewMode: "simulation",
+  setViewMode: (mode) => set({ viewMode: mode }),
+
+  training: {
+    activeTask: null,
+    currentStepIndex: 0,
+    status: "not_started",
+    startTime: null,
+    hintsUsed: 0,
+    showHints: true,
+    trainingResults: [],
+    lastResult: null,
   },
 
   setParam: (key, value) => {
@@ -1665,5 +1702,138 @@ export const usePressStore = create<PressStore>((set, get) => ({
       return null;
     }
     return link;
+  },
+
+  startTrainingTask: (taskId) => {
+    const task = getTaskById(taskId);
+    if (!task) return false;
+    if (task.targets.targetParams) {
+      const currentParams = get().params;
+      get().setParams({ ...currentParams, ...task.targets.targetParams });
+    }
+    set({
+      viewMode: "training",
+      training: {
+        activeTask: task,
+        currentStepIndex: 0,
+        status: "in_progress",
+        startTime: Date.now(),
+        hintsUsed: 0,
+        showHints: true,
+        trainingResults: get().training.trainingResults,
+        lastResult: null,
+      },
+    });
+    return true;
+  },
+
+  nextTrainingStep: () => {
+    const { training } = get();
+    if (!training.activeTask) return;
+    const nextIdx = Math.min(
+      training.currentStepIndex + 1,
+      training.activeTask.steps.length - 1
+    );
+    set({
+      training: {
+        ...training,
+        currentStepIndex: nextIdx,
+      },
+    });
+  },
+
+  prevTrainingStep: () => {
+    const { training } = get();
+    if (!training.activeTask) return;
+    const prevIdx = Math.max(training.currentStepIndex - 1, 0);
+    set({
+      training: {
+        ...training,
+        currentStepIndex: prevIdx,
+      },
+    });
+  },
+
+  setCurrentTrainingStep: (index) => {
+    const { training } = get();
+    if (!training.activeTask) return;
+    const clampedIdx = Math.max(
+      0,
+      Math.min(index, training.activeTask.steps.length - 1)
+    );
+    set({
+      training: {
+        ...training,
+        currentStepIndex: clampedIdx,
+      },
+    });
+  },
+
+  toggleTrainingHints: () => {
+    const { training } = get();
+    set({
+      training: {
+        ...training,
+        showHints: !training.showHints,
+      },
+    });
+  },
+
+  useHint: () => {
+    const { training } = get();
+    set({
+      training: {
+        ...training,
+        hintsUsed: training.hintsUsed + 1,
+      },
+    });
+  },
+
+  submitTrainingResult: () => {
+    const { training, params, simulationResult } = get();
+    if (!training.activeTask || !training.startTime) return null;
+
+    const timeSpent = (Date.now() - training.startTime) / 1000;
+    const result = calculateTrainingResult(
+      training.activeTask,
+      params,
+      simulationResult,
+      timeSpent,
+      training.hintsUsed
+    );
+
+    const nextResults = [result, ...training.trainingResults].slice(0, 50);
+
+    set({
+      training: {
+        ...training,
+        status: "completed",
+        trainingResults: nextResults,
+        lastResult: result,
+      },
+    });
+
+    return result;
+  },
+
+  resetTraining: () => {
+    const { training } = get();
+    set({
+      viewMode: "simulation",
+      training: {
+        activeTask: null,
+        currentStepIndex: 0,
+        status: "not_started",
+        startTime: null,
+        hintsUsed: 0,
+        showHints: true,
+        trainingResults: training.trainingResults,
+        lastResult: null,
+      },
+    });
+  },
+
+  getTrainingTaskList: () => {
+    return getTrainingTasks();
   },
 }));

@@ -23,10 +23,33 @@ export default function ControlPanel() {
       key: "leverLength" as const,
       label: "杠杆长度",
       unit: "m",
-      min: 0.5,
-      max: 6,
+      min: 1.0,
+      max: 8,
       step: 0.1,
       description: "更长的杠杆产生更大的机械增益",
+      category: "结构",
+    },
+    {
+      key: "fulcrumPosition" as const,
+      label: "压石挂点位置",
+      unit: "%",
+      min: 30,
+      max: 95,
+      step: 1,
+      description: "压石距支点的比例，越靠外压力越大",
+      category: "结构",
+      displayValue: (v: number) => (v * 100).toFixed(0),
+      inputToValue: (v: number) => v / 100,
+    },
+    {
+      key: "plateDiameter" as const,
+      label: "压盘直径",
+      unit: "m",
+      min: 0.2,
+      max: 1.2,
+      step: 0.05,
+      description: "压盘越小，压强越大",
+      category: "结构",
     },
     {
       key: "stoneWeight" as const,
@@ -36,6 +59,7 @@ export default function ControlPanel() {
       max: 500,
       step: 5,
       description: "压石越重，产生的压力越大",
+      category: "载荷",
     },
     {
       key: "fruitWeight" as const,
@@ -45,6 +69,7 @@ export default function ControlPanel() {
       max: 200,
       step: 1,
       description: "待压榨的果料总重量",
+      category: "物料",
     },
     {
       key: "moistureContent" as const,
@@ -54,6 +79,7 @@ export default function ControlPanel() {
       max: 100,
       step: 1,
       description: "果料中水分所占的质量百分比",
+      category: "物料",
     },
   ];
 
@@ -141,53 +167,80 @@ export default function ControlPanel() {
       )}
 
       <div className="space-y-4 flex-1 overflow-y-auto pr-1">
-        {paramFields.map((f) => {
-          const hasError = validation.errors.some((e) => e.field === f.key);
+        {["结构", "载荷", "物料"].map((cat) => {
+          const fields = paramFields.filter((f) => f.category === cat);
+          if (fields.length === 0) return null;
           return (
-            <div key={f.key} className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="font-display font-semibold text-wood-700 text-sm">
-                  {f.label}
-                </label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="number"
-                    min={f.min}
-                    max={f.max}
-                    step={f.step}
-                    value={params[f.key]}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!isNaN(v)) setParam(f.key, v);
-                    }}
-                    className={`vintage-input w-20 text-right text-sm ${
-                      hasError ? "error" : ""
-                    }`}
-                  />
-                  <span className="text-xs text-slate-500 w-6">{f.unit}</span>
-                </div>
+            <div key={cat} className="space-y-3">
+              <div className="text-[11px] font-display font-bold text-wood-500 uppercase tracking-widest border-b border-wood-200 pb-1">
+                {cat}参数
               </div>
-              <input
-                type="range"
-                min={f.min}
-                max={f.max}
-                step={f.step}
-                value={params[f.key]}
-                onChange={(e) => setParam(f.key, parseFloat(e.target.value))}
-                className="vintage-slider"
-                disabled={status === "running"}
-              />
-              <div className="flex justify-between text-[10px] text-slate-400 -mt-0.5">
-                <span>
-                  {f.min}
-                  {f.unit}
-                </span>
-                <span className="text-slate-500 italic">{f.description}</span>
-                <span>
-                  {f.max}
-                  {f.unit}
-                </span>
-              </div>
+              {fields.map((f) => {
+                const hasError = validation.errors.some((e) => e.field === f.key);
+                const rawValue = params[f.key];
+                const displayValue = f.displayValue
+                  ? f.displayValue(rawValue)
+                  : rawValue.toString();
+                const sliderMin = f.displayValue ? f.min : f.min;
+                const sliderMax = f.displayValue ? f.max : f.max;
+                const sliderVal = f.displayValue
+                  ? f.displayValue(rawValue)
+                  : rawValue;
+                return (
+                  <div key={f.key} className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="font-display font-semibold text-wood-700 text-sm">
+                        {f.label}
+                      </label>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          min={f.min}
+                          max={f.max}
+                          step={f.step}
+                          value={displayValue}
+                          onChange={(e) => {
+                            const v = parseFloat(e.target.value);
+                            if (!isNaN(v)) {
+                              const actual = f.inputToValue ? f.inputToValue(v) : v;
+                              setParam(f.key, actual);
+                            }
+                          }}
+                          className={`vintage-input w-20 text-right text-sm ${
+                            hasError ? "error" : ""
+                          }`}
+                        />
+                        <span className="text-xs text-slate-500 w-6">{f.unit}</span>
+                      </div>
+                    </div>
+                    <input
+                      type="range"
+                      min={sliderMin}
+                      max={sliderMax}
+                      step={f.step}
+                      value={sliderVal}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        const actual = f.inputToValue ? f.inputToValue(v) : v;
+                        setParam(f.key, actual);
+                      }}
+                      className="vintage-slider"
+                      disabled={status === "running"}
+                    />
+                    <div className="flex justify-between text-[10px] text-slate-400 -mt-0.5">
+                      <span>
+                        {f.min}
+                        {f.unit}
+                      </span>
+                      <span className="text-slate-500 italic">{f.description}</span>
+                      <span>
+                        {f.max}
+                        {f.unit}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           );
         })}

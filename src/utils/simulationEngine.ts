@@ -7,14 +7,21 @@ import {
   PRESSURE_THRESHOLD,
   JUICE_COEFFICIENT,
   COMPRESSION_TAU,
-  PLATE_AREA,
   GRAVITY,
+  computePlateArea,
 } from "../types";
 
+export const PLATE_ARM_M = 0.6;
+
 export function computePressure(params: PressParams): number {
+  const stoneArmM = params.leverLength * params.fulcrumPosition;
+  const mechanicalAdvantage = stoneArmM / PLATE_ARM_M;
+
   const stoneForce = params.stoneWeight * GRAVITY;
-  const pressForce = stoneForce * (0.8 / 0.3);
-  const pressurePa = pressForce / PLATE_AREA;
+  const pressForce = stoneForce * mechanicalAdvantage;
+
+  const plateArea = computePlateArea(params.plateDiameter);
+  const pressurePa = pressForce / plateArea;
   return pressurePa / 1000;
 }
 
@@ -46,7 +53,7 @@ export function runFullSimulation(params: PressParams): SimulationResult {
       residueMoisture: params.moistureContent,
       juiceYield: 0,
       feasible: false,
-      infeasibleReason: `压力不足（仅 ${pressure.toFixed(1)} kPa），低于临界阈值 ${PRESSURE_THRESHOLD} kPa，无法产生有效出汁。请增加压石重量或调整杠杆结构。`,
+      infeasibleReason: `压力不足（仅 ${pressure.toFixed(1)} kPa），低于临界阈值 ${PRESSURE_THRESHOLD} kPa，无法产生有效出汁。请增加压石重量、加长杠杆、缩小压盘或调整压石挂点位置。`,
       timeSeries: [initialPoint],
     };
   }

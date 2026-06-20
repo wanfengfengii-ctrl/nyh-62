@@ -120,6 +120,8 @@ export default function PlanManager() {
             <tbody className="font-body">
               {[
                 { key: "leverLength", label: "杠杆长度", unit: "m", param: true },
+                { key: "fulcrumPosition", label: "挂点位置", unit: "%", param: true, pct: true },
+                { key: "plateDiameter", label: "压盘直径", unit: "m", param: true },
                 { key: "stoneWeight", label: "压石重量", unit: "kg", param: true },
                 { key: "fruitWeight", label: "果料重量", unit: "kg", param: true },
                 { key: "moistureContent", label: "含水率", unit: "%", param: true },
@@ -139,9 +141,13 @@ export default function PlanManager() {
                       <span className="text-slate-400 text-[10px] ml-1">({row.unit})</span>
                     </td>
                     {selectedPlans.map((p) => {
-                      const val = row.param
-                        ? (p.params as any)[row.key]
-                        : (p.result as any)?.[row.key];
+                      let val: number | undefined;
+                      if (row.param) {
+                        val = (p.params as unknown as Record<string, number>)[row.key];
+                        if (row.pct) val = val * 100;
+                      } else {
+                        val = (p.result as unknown as Record<string, number> | undefined)?.[row.key];
+                      }
                       const isBest = best !== null && val === best;
                       const feasible = p.result?.feasible;
                       return (
@@ -230,6 +236,9 @@ export default function PlanManager() {
               <div className="text-[10px] text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5 pl-6">
                 <span>
                   杠杆 <span className="text-wood-700 font-semibold">{plan.params.leverLength}m</span>
+                </span>
+                <span>
+                  压盘 <span className="text-wood-700 font-semibold">Ø{plan.params.plateDiameter.toFixed(2)}m</span>
                 </span>
                 <span>
                   压石 <span className="text-wood-700 font-semibold">{plan.params.stoneWeight}kg</span>

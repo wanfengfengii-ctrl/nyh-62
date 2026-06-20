@@ -3,6 +3,13 @@ export interface PressParams {
   stoneWeight: number;
   fruitWeight: number;
   moistureContent: number;
+  plateDiameter: number;
+  fulcrumPosition: number;
+}
+
+export function computePlateArea(diameterM: number): number {
+  const r = diameterM / 2;
+  return Math.PI * r * r;
 }
 
 export interface ValidationError {
@@ -57,5 +64,6 @@ export const SIMULATION_DT = 0.5;
 export const PRESSURE_THRESHOLD = 50;
 export const JUICE_COEFFICIENT = 0.0015;
 export const COMPRESSION_TAU = 20;
-export const PLATE_AREA = 0.1257;
 export const GRAVITY = 9.8;
+
+export const DEFAULT_PLATE_POSITION_RATIO = 0.25;

@@ -36,16 +36,31 @@ interface PressStore {
 const STORAGE_KEY = "press_experiment_plans";
 
 const defaultParams: PressParams = {
-  leverLength: 2.5,
-  stoneWeight: 80,
+  leverLength: 4.5,
+  stoneWeight: 150,
   fruitWeight: 50,
   moistureContent: 75,
+  plateDiameter: 0.35,
+  fulcrumPosition: 0.9,
 };
 
 function loadPlansFromStorage(): ExperimentPlan[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ExperimentPlan[];
+      return parsed.map((p) => ({
+        ...p,
+        params: {
+          leverLength: p.params.leverLength ?? 2.5,
+          stoneWeight: p.params.stoneWeight ?? 80,
+          fruitWeight: p.params.fruitWeight ?? 50,
+          moistureContent: p.params.moistureContent ?? 75,
+          plateDiameter: (p.params as any).plateDiameter ?? 0.4,
+          fulcrumPosition: (p.params as any).fulcrumPosition ?? 0.8,
+        },
+      }));
+    }
   } catch (e) {
     console.error("Failed to load plans", e);
   }
